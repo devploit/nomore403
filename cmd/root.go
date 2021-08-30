@@ -19,8 +19,8 @@ var (
 // rootCmd
 var rootCmd = &cobra.Command{
 	Use:   "dontgo403",
-	Short: "Tool that automates different attempts to bypass 40X codes",
-	Long: `Command line application that automates different attempts to bypass 40X codes`,
+	Short: "Tool to bypass 40X response codes.",
+	Long: `Command line application that automates different ways to bypass 40X codes.`,
 
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(os.Args) < 3 {

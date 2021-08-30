@@ -7,7 +7,9 @@
 dontgo403 is a tool to bypass 40X errors.
 
 ### Installation
-
+```bash
+git clone https://github.com/devploit/dontgo403; cd dontgo403; go get; go build
+```
 
 ### Options
 ```bash
@@ -26,7 +28,7 @@ Flags:
 ```
 
 ### Example of usage
-```bash
+```sh
 ./dontgo403 -u https://server.com/admin
 
 [+] HTTP METHODS
