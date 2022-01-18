@@ -3,10 +3,10 @@ package cmd
 import (
 	"bufio"
 	"crypto/tls"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"strconv"
@@ -15,30 +15,50 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/olekukonko/tablewriter"
 )
 
 type Result struct {
-	line string
-	code int
+	line          string
+	statusCode    int
+	contentLength int
 }
 
-func printResponse(line string, code int) {
-	switch code {
-	case 200, 201, 202, 203, 204, 205, 206:
-		fmt.Printf("%s: %s\n", line, color.GreenString(strconv.Itoa(code)))
-	case 300, 301, 302, 303, 304, 307, 308:
-		fmt.Printf("%s: %s\n", line, color.YellowString(strconv.Itoa(code)))
-	case 400, 401, 402, 403, 404, 405, 406, 407, 408, 413:
-		fmt.Printf("%s: %s\n", line, color.RedString(strconv.Itoa(code)))
-	case 500, 501, 502, 503, 504, 505, 511:
-		fmt.Printf("%s: %s\n", line, color.MagentaString(strconv.Itoa(code)))
+func printResponse(results []Result) {
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetAutoWrapText(false)
+	table.SetAutoFormatHeaders(true)
+	table.SetCenterSeparator("")
+	table.SetColumnSeparator("")
+	table.SetRowSeparator("")
+	table.SetHeaderLine(false)
+	table.SetBorder(false)
+	table.SetTablePadding("\t")
+	table.SetAlignment(tablewriter.ALIGN_LEFT)
+	table.SetNoWhiteSpace(true)
+
+	var code string
+	for _, result := range results {
+		switch result.statusCode {
+		case 200, 201, 202, 203, 204, 205, 206:
+			code = color.GreenString(strconv.Itoa(result.statusCode))
+		case 300, 301, 302, 303, 304, 307, 308:
+			code = color.YellowString(strconv.Itoa(result.statusCode))
+		case 400, 401, 402, 403, 404, 405, 406, 407, 408, 413, 429:
+			code = color.RedString(strconv.Itoa(result.statusCode))
+		case 500, 501, 502, 503, 504, 505, 511:
+			code = color.MagentaString(strconv.Itoa(result.statusCode))
+		}
+		table.AppendBulk([][]string{
+			{code, color.BlueString(strconv.Itoa(result.contentLength) + " bytes"), result.line},
+		})
 	}
+	table.Render()
+
 }
 
 func requestMethods(uri string, proxy *url.URL, useragent string) {
-	ch1 := make(chan Result)
-
-	color.Cyan("\n[+] HTTP METHODS")
+	color.Cyan("\n[####] HTTP METHODS [####]")
 	file, err := os.Open("payloads/httpmethods")
 	if err != nil {
 		log.Fatal(err)
@@ -61,6 +81,8 @@ func requestMethods(uri string, proxy *url.URL, useragent string) {
 	var wg sync.WaitGroup
 	wg.Add(len(txtlines))
 
+	results := []Result{}
+
 	for _, line := range txtlines {
 		go func(line string) {
 			defer wg.Done()
@@ -79,17 +101,16 @@ func requestMethods(uri string, proxy *url.URL, useragent string) {
 				log.Fatal(err)
 			}
 
-			printResponse(line, resp.StatusCode)
+			response, _ := httputil.DumpResponse(resp, true)
+			results = append(results, Result{line, resp.StatusCode, len(response)})
 		}(line)
 	}
 	wg.Wait()
-	close(ch1)
+	printResponse(results)
 }
 
 func requestHeaders(uri string, proxy *url.URL, useragent string) {
-	ch1 := make(chan Result)
-
-	color.Cyan("\n[+] VERB TAMPERING")
+	color.Cyan("\n[####] VERB TAMPERING [####]")
 	file, err := os.Open("payloads/headers")
 	if err != nil {
 		log.Fatal(err)
@@ -111,6 +132,8 @@ func requestHeaders(uri string, proxy *url.URL, useragent string) {
 
 	var wg sync.WaitGroup
 	wg.Add(len(txtlines))
+
+	results := []Result{}
 
 	for _, line := range txtlines {
 		go func(line string) {
@@ -135,17 +158,16 @@ func requestHeaders(uri string, proxy *url.URL, useragent string) {
 				log.Fatal(err)
 			}
 
-			printResponse(line, resp.StatusCode)
+			response, _ := httputil.DumpResponse(resp, true)
+			results = append(results, Result{h[0] + ": " + h[1], resp.StatusCode, len(response)})
 		}(line)
 	}
 	wg.Wait()
-	close(ch1)
+	printResponse(results)
 }
 
 func requestEndPaths(uri string, proxy *url.URL, useragent string) {
-	ch1 := make(chan Result)
-
-	color.Cyan("\n[+] CUSTOM PATHS")
+	color.Cyan("\n[####] CUSTOM PATHS [####]")
 	file, err := os.Open("payloads/endpaths")
 	if err != nil {
 		log.Fatal(err)
@@ -168,6 +190,8 @@ func requestEndPaths(uri string, proxy *url.URL, useragent string) {
 	var wg sync.WaitGroup
 	wg.Add(len(txtlines))
 
+	results := []Result{}
+
 	for _, line := range txtlines {
 		go func(line string) {
 			defer wg.Done()
@@ -179,6 +203,7 @@ func requestEndPaths(uri string, proxy *url.URL, useragent string) {
 					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
 			}
 
+			fullpath := uri + line
 			req, err := http.NewRequest("GET", uri+line, nil)
 			req.Header.Add("User-Agent", useragent)
 
@@ -187,17 +212,16 @@ func requestEndPaths(uri string, proxy *url.URL, useragent string) {
 				log.Fatal(err)
 			}
 
-			lineprint := "End path " + line
-			printResponse(lineprint, resp.StatusCode)
+			lineprint := fullpath
+			response, _ := httputil.DumpResponse(resp, true)
+			results = append(results, Result{lineprint, resp.StatusCode, len(response)})
 		}(line)
 	}
 	wg.Wait()
-	close(ch1)
+	printResponse(results)
 }
 
 func requestMidPaths(uri string, proxy *url.URL, useragent string) {
-	ch1 := make(chan Result)
-
 	file, err := os.Open("payloads/midpaths")
 	if err != nil {
 		log.Fatal(err)
@@ -232,6 +256,8 @@ func requestMidPaths(uri string, proxy *url.URL, useragent string) {
 	var wg sync.WaitGroup
 	wg.Add(len(txtlines))
 
+	results := []Result{}
+
 	for _, line := range txtlines {
 		go func(line string) {
 			defer wg.Done()
@@ -258,18 +284,17 @@ func requestMidPaths(uri string, proxy *url.URL, useragent string) {
 				log.Fatal(err)
 			}
 
-			lineprint := "Mid path " + line
-			printResponse(lineprint, resp.StatusCode)
+			lineprint := fullpath
+			response, _ := httputil.DumpResponse(resp, true)
+			results = append(results, Result{lineprint, resp.StatusCode, len(response)})
 		}(line)
 	}
 	wg.Wait()
-	close(ch1)
+	printResponse(results)
 }
 
 func requestCapital(uri string, proxy *url.URL, useragent string) {
-	ch1 := make(chan Result)
-
-	color.Cyan("\n[+] CAPITALIZATION")
+	color.Cyan("\n[####] CAPITALIZATION [####]")
 
 	h := strings.Split(uri, "/")
 	var uripath string
@@ -284,6 +309,8 @@ func requestCapital(uri string, proxy *url.URL, useragent string) {
 
 	var wg sync.WaitGroup
 	wg.Add(len(uripath))
+
+	results := []Result{}
 
 	for _, z := range uripath {
 		go func(z string) {
@@ -313,11 +340,12 @@ func requestCapital(uri string, proxy *url.URL, useragent string) {
 			}
 
 			lineprint := fullpath
-			printResponse(lineprint, resp.StatusCode)
+			response, _ := httputil.DumpResponse(resp, true)
+			results = append(results, Result{lineprint, resp.StatusCode, len(response)})
 		}(string(z))
 	}
 	wg.Wait()
-	close(ch1)
+	printResponse(results)
 }
 
 func requester(uri string, proxy string, useragent string) {
