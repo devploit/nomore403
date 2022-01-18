@@ -4,6 +4,7 @@ go 1.16
 
 require (
 	github.com/TwinProduction/go-color v1.0.0 // indirect
+	github.com/cheynewallace/tabby v1.1.1 // indirect
 	github.com/fatih/color v1.12.0
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect

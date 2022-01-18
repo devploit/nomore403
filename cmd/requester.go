@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cheynewallace/tabby"
 	"github.com/fatih/color"
-	"github.com/olekukonko/tablewriter"
 )
 
 type Result struct {
@@ -25,17 +25,7 @@ type Result struct {
 }
 
 func printResponse(results []Result) {
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetAutoWrapText(false)
-	table.SetAutoFormatHeaders(true)
-	table.SetCenterSeparator("")
-	table.SetColumnSeparator("")
-	table.SetRowSeparator("")
-	table.SetHeaderLine(false)
-	table.SetBorder(false)
-	table.SetTablePadding("\t")
-	table.SetAlignment(tablewriter.ALIGN_LEFT)
-	table.SetNoWhiteSpace(true)
+	t := tabby.New()
 
 	var code string
 	for _, result := range results {
@@ -49,11 +39,9 @@ func printResponse(results []Result) {
 		case 500, 501, 502, 503, 504, 505, 511:
 			code = color.MagentaString(strconv.Itoa(result.statusCode))
 		}
-		table.AppendBulk([][]string{
-			{code, color.BlueString(strconv.Itoa(result.contentLength) + " bytes"), result.line},
-		})
+		t.AddLine(code, color.BlueString(strconv.Itoa(result.contentLength)+" bytes"), result.line)
 	}
-	table.Render()
+	t.Print()
 
 }
 
