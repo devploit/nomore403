@@ -1,40 +1,42 @@
-
 package cmd
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fatih/color"
 )
 
-func printResponse(ch1 chan string, ch2 chan int){
-	for e := range ch1 {
-		fmt.Printf("%s: ", e)
-		code := <-ch2
-		switch code {
-		case 200, 201, 202, 203, 204, 205, 206:
-			color.Green(strconv.Itoa(code))
-		case 300, 301, 302, 303, 304, 307, 308:
-			color.Yellow(strconv.Itoa(code))
-		case 400, 401, 402, 403, 404, 405, 406, 407, 408, 413:
-			color.Red(strconv.Itoa(code))
-		case 500, 501, 502, 503, 504, 505, 511:
-			color.Magenta(strconv.Itoa(code))
-		}
+type Result struct {
+	line string
+	code int
+}
+
+func printResponse(line string, code int) {
+	switch code {
+	case 200, 201, 202, 203, 204, 205, 206:
+		fmt.Printf("%s: %s\n", line, color.GreenString(strconv.Itoa(code)))
+	case 300, 301, 302, 303, 304, 307, 308:
+		fmt.Printf("%s: %s\n", line, color.YellowString(strconv.Itoa(code)))
+	case 400, 401, 402, 403, 404, 405, 406, 407, 408, 413:
+		fmt.Printf("%s: %s\n", line, color.RedString(strconv.Itoa(code)))
+	case 500, 501, 502, 503, 504, 505, 511:
+		fmt.Printf("%s: %s\n", line, color.MagentaString(strconv.Itoa(code)))
 	}
 }
 
-func requestMethods(uri string, proxy *url.URL, useragent string){
-	ch1 := make(chan string)
-	ch2 := make(chan int)
+func requestMethods(uri string, proxy *url.URL, useragent string) {
+	ch1 := make(chan Result)
 
 	color.Cyan("\n[+] HTTP METHODS")
 	file, err := os.Open("payloads/httpmethods")
@@ -47,7 +49,7 @@ func requestMethods(uri string, proxy *url.URL, useragent string){
 
 	var txtlines []string
 
-	for scanner.Scan(){
+	for scanner.Scan() {
 		txtlines = append(txtlines, scanner.Text())
 	}
 
@@ -62,10 +64,12 @@ func requestMethods(uri string, proxy *url.URL, useragent string){
 	for _, line := range txtlines {
 		go func(line string) {
 			defer wg.Done()
-			client := &http.Client{}
+			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
 
 			if len(proxy.Host) != 0 {
-				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy)}}
+				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy),
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
 			}
 
 			req, err := http.NewRequest(line, uri, nil)
@@ -75,20 +79,15 @@ func requestMethods(uri string, proxy *url.URL, useragent string){
 				log.Fatal(err)
 			}
 
-			ch1 <- line
-			ch2 <- resp.StatusCode
+			printResponse(line, resp.StatusCode)
 		}(line)
-
 	}
-
-	go printResponse(ch1, ch2)
 	wg.Wait()
+	close(ch1)
 }
 
-
 func requestHeaders(uri string, proxy *url.URL, useragent string) {
-	ch1 := make(chan string)
-	ch2 := make(chan int)
+	ch1 := make(chan Result)
 
 	color.Cyan("\n[+] VERB TAMPERING")
 	file, err := os.Open("payloads/headers")
@@ -101,7 +100,7 @@ func requestHeaders(uri string, proxy *url.URL, useragent string) {
 
 	var txtlines []string
 
-	for scanner.Scan(){
+	for scanner.Scan() {
 		txtlines = append(txtlines, scanner.Text())
 	}
 
@@ -116,10 +115,12 @@ func requestHeaders(uri string, proxy *url.URL, useragent string) {
 	for _, line := range txtlines {
 		go func(line string) {
 			defer wg.Done()
-			client := &http.Client{}
+			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
 
 			if len(proxy.Host) != 0 {
-				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy)}}
+				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy),
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
 			}
 
 			req, err := http.NewRequest("GET", uri, nil)
@@ -134,18 +135,15 @@ func requestHeaders(uri string, proxy *url.URL, useragent string) {
 				log.Fatal(err)
 			}
 
-			ch1 <- line
-			ch2 <- resp.StatusCode
+			printResponse(line, resp.StatusCode)
 		}(line)
 	}
-
-	go printResponse(ch1, ch2)
 	wg.Wait()
+	close(ch1)
 }
 
 func requestEndPaths(uri string, proxy *url.URL, useragent string) {
-	ch1 := make(chan string)
-	ch2 := make(chan int)
+	ch1 := make(chan Result)
 
 	color.Cyan("\n[+] CUSTOM PATHS")
 	file, err := os.Open("payloads/endpaths")
@@ -158,7 +156,7 @@ func requestEndPaths(uri string, proxy *url.URL, useragent string) {
 
 	var txtlines []string
 
-	for scanner.Scan(){
+	for scanner.Scan() {
 		txtlines = append(txtlines, scanner.Text())
 	}
 
@@ -173,10 +171,12 @@ func requestEndPaths(uri string, proxy *url.URL, useragent string) {
 	for _, line := range txtlines {
 		go func(line string) {
 			defer wg.Done()
-			client := &http.Client{}
+			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
 
 			if len(proxy.Host) != 0 {
-				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy)}}
+				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy),
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
 			}
 
 			req, err := http.NewRequest("GET", uri+line, nil)
@@ -188,18 +188,15 @@ func requestEndPaths(uri string, proxy *url.URL, useragent string) {
 			}
 
 			lineprint := "End path " + line
-			ch1 <- lineprint
-			ch2 <- resp.StatusCode
+			printResponse(lineprint, resp.StatusCode)
 		}(line)
 	}
-
-	go printResponse(ch1, ch2)
 	wg.Wait()
+	close(ch1)
 }
 
 func requestMidPaths(uri string, proxy *url.URL, useragent string) {
-	ch1 := make(chan string)
-	ch2 := make(chan int)
+	ch1 := make(chan Result)
 
 	file, err := os.Open("payloads/midpaths")
 	if err != nil {
@@ -211,7 +208,7 @@ func requestMidPaths(uri string, proxy *url.URL, useragent string) {
 
 	var txtlines []string
 
-	for scanner.Scan(){
+	for scanner.Scan() {
 		txtlines = append(txtlines, scanner.Text())
 	}
 
@@ -221,8 +218,16 @@ func requestMidPaths(uri string, proxy *url.URL, useragent string) {
 	}
 
 	h := strings.Split(uri, "/")
-	uripath := h[3]
+	var uripath string
+
+	if uri[len(uri)-1:] == "/" {
+		uripath = h[len(h)-2]
+	} else {
+		uripath = h[len(h)-1]
+	}
+
 	baseuri := strings.ReplaceAll(uri, uripath, "")
+	baseuri = baseuri[:len(baseuri)-1]
 
 	var wg sync.WaitGroup
 	wg.Add(len(txtlines))
@@ -230,13 +235,22 @@ func requestMidPaths(uri string, proxy *url.URL, useragent string) {
 	for _, line := range txtlines {
 		go func(line string) {
 			defer wg.Done()
-			client := &http.Client{}
+			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
 
 			if len(proxy.Host) != 0 {
-				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy)}}
+				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy),
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+			}
+			var fullpath string
+
+			if uri[len(uri)-1:] == "/" {
+				fullpath = baseuri + line + uripath + "/"
+			} else {
+				fullpath = baseuri + "/" + line + uripath
 			}
 
-			req, err := http.NewRequest("GET", baseuri+line+uripath, nil)
+			req, err := http.NewRequest("GET", fullpath, nil)
 			req.Header.Add("User-Agent", useragent)
 
 			resp, err := client.Do(req)
@@ -245,13 +259,65 @@ func requestMidPaths(uri string, proxy *url.URL, useragent string) {
 			}
 
 			lineprint := "Mid path " + line
-			ch1 <- lineprint
-			ch2 <- resp.StatusCode
+			printResponse(lineprint, resp.StatusCode)
 		}(line)
 	}
-
-	go printResponse(ch1, ch2)
 	wg.Wait()
+	close(ch1)
+}
+
+func requestCapital(uri string, proxy *url.URL, useragent string) {
+	ch1 := make(chan Result)
+
+	color.Cyan("\n[+] CAPITALIZATION")
+
+	h := strings.Split(uri, "/")
+	var uripath string
+
+	if uri[len(uri)-1:] == "/" {
+		uripath = h[len(h)-2]
+	} else {
+		uripath = h[len(h)-1]
+	}
+	baseuri := strings.ReplaceAll(uri, uripath, "")
+	baseuri = baseuri[:len(baseuri)-1]
+
+	var wg sync.WaitGroup
+	wg.Add(len(uripath))
+
+	for _, z := range uripath {
+		go func(z string) {
+			defer wg.Done()
+			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+
+			if len(proxy.Host) != 0 {
+				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy),
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+			}
+			newpath := strings.ReplaceAll(uripath, string(z), strings.ToUpper(string(z)))
+			var fullpath string
+
+			if uri[len(uri)-1:] == "/" {
+				fullpath = baseuri + newpath + "/"
+			} else {
+				fullpath = baseuri + "/" + newpath
+			}
+
+			req, err := http.NewRequest("GET", fullpath, nil)
+			req.Header.Add("User-Agent", useragent)
+
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			lineprint := fullpath
+			printResponse(lineprint, resp.StatusCode)
+		}(string(z))
+	}
+	wg.Wait()
+	close(ch1)
 }
 
 func requester(uri string, proxy string, useragent string) {
@@ -267,10 +333,11 @@ func requester(uri string, proxy string, useragent string) {
 		uri += "/"
 	}
 	if len(useragent) == 0 {
-		useragent = "dontgo403/0.1"
+		useragent = "dontgo403/0.2"
 	}
 	requestMethods(uri, userProxy, useragent)
 	requestHeaders(uri, userProxy, useragent)
 	requestEndPaths(uri, userProxy, useragent)
 	requestMidPaths(uri, userProxy, useragent)
+	requestCapital(uri, userProxy, useragent)
 }
