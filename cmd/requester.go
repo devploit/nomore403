@@ -75,11 +75,11 @@ func requestMethods(uri string, proxy *url.URL, useragent string) {
 		go func(line string) {
 			defer wg.Done()
 			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-				DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+				DialContext: (&net.Dialer{Timeout: 6 * time.Second}).DialContext}}
 
 			if len(proxy.Host) != 0 {
 				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy),
-					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 6 * time.Second}).DialContext}}
 			}
 
 			req, err := http.NewRequest(line, uri, nil)
@@ -127,11 +127,11 @@ func requestHeaders(uri string, proxy *url.URL, useragent string) {
 		go func(line string) {
 			defer wg.Done()
 			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-				DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+				DialContext: (&net.Dialer{Timeout: 6 * time.Second}).DialContext}}
 
 			if len(proxy.Host) != 0 {
 				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy),
-					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 6 * time.Second}).DialContext}}
 			}
 
 			req, err := http.NewRequest("GET", uri, nil)
@@ -184,11 +184,11 @@ func requestEndPaths(uri string, proxy *url.URL, useragent string) {
 		go func(line string) {
 			defer wg.Done()
 			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-				DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+				DialContext: (&net.Dialer{Timeout: 6 * time.Second}).DialContext}}
 
 			if len(proxy.Host) != 0 {
 				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy),
-					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 6 * time.Second}).DialContext}}
 			}
 
 			fullpath := uri + line
@@ -250,11 +250,11 @@ func requestMidPaths(uri string, proxy *url.URL, useragent string) {
 		go func(line string) {
 			defer wg.Done()
 			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-				DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+				DialContext: (&net.Dialer{Timeout: 6 * time.Second}).DialContext}}
 
 			if len(proxy.Host) != 0 {
 				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy),
-					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 6 * time.Second}).DialContext}}
 			}
 			var fullpath string
 
@@ -304,11 +304,11 @@ func requestCapital(uri string, proxy *url.URL, useragent string) {
 		go func(z string) {
 			defer wg.Done()
 			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-				DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+				DialContext: (&net.Dialer{Timeout: 6 * time.Second}).DialContext}}
 
 			if len(proxy.Host) != 0 {
 				client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy),
-					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext}}
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 6 * time.Second}).DialContext}}
 			}
 			newpath := strings.ReplaceAll(uripath, string(z), strings.ToUpper(string(z)))
 			var fullpath string
