@@ -1,5 +1,5 @@
 <p align="center">
-<img src="https://i.imgur.com/0vLHCHd.png" width="600" height="100" >
+<img src="https://i.imgur.com/T5P5ZG0.png" width="600" height="150" >
 </p>
 
 [![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/dwyl/esta/issues)
