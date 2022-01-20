@@ -86,15 +86,15 @@ func requestHeaders(uri string, headers []header, proxy *url.URL) {
 		go func(line string) {
 			defer wg.Done()
 
-			h := strings.Split(line, " ")
-			headers := append(headers, header{h[0], h[1]})
+			x := strings.Split(line, " ")
+			headers := append(headers, header{x[0], x[1]})
 
 			statusCode, response, err := request("GET", uri, headers, proxy)
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			results = append(results, Result{h[0] + ": " + h[1], statusCode, len(response)})
+			results = append(results, Result{x[0] + ": " + x[1], statusCode, len(response)})
 		}(line)
 	}
 	wg.Wait()
@@ -137,13 +137,13 @@ func requestMidPaths(uri string, headers []header, proxy *url.URL) {
 		log.Fatal(err)
 	}
 
-	h := strings.Split(uri, "/")
+	x := strings.Split(uri, "/")
 	var uripath string
 
 	if uri[len(uri)-1:] == "/" {
-		uripath = h[len(h)-2]
+		uripath = x[len(x)-2]
 	} else {
-		uripath = h[len(h)-1]
+		uripath = x[len(x)-1]
 	}
 
 	baseuri := strings.ReplaceAll(uri, uripath, "")
@@ -180,13 +180,13 @@ func requestMidPaths(uri string, headers []header, proxy *url.URL) {
 func requestCapital(uri string, headers []header, proxy *url.URL) {
 	color.Cyan("\n[####] CAPITALIZATION [####]")
 
-	h := strings.Split(uri, "/")
+	x := strings.Split(uri, "/")
 	var uripath string
 
 	if uri[len(uri)-1:] == "/" {
-		uripath = h[len(h)-2]
+		uripath = x[len(x)-2]
 	} else {
-		uripath = h[len(h)-1]
+		uripath = x[len(x)-1]
 	}
 	baseuri := strings.ReplaceAll(uri, uripath, "")
 	baseuri = baseuri[:len(baseuri)-1]
@@ -221,7 +221,7 @@ func requestCapital(uri string, headers []header, proxy *url.URL) {
 	printResponse(results)
 }
 
-func requester(uri string, userAgent string, proxy string) {
+func requester(uri string, proxy string, userAgent string, req_headers []string) {
 	if len(proxy) != 0 {
 		if !strings.Contains(proxy, "http") {
 			proxy = "http://" + proxy
@@ -229,8 +229,8 @@ func requester(uri string, userAgent string, proxy string) {
 		color.Magenta("\n[*] USING PROXY: %s\n", proxy)
 	}
 	userProxy, _ := url.Parse(proxy)
-	h := strings.Split(uri, "/")
-	if len(h) < 4 {
+	x := strings.Split(uri, "/")
+	if len(x) < 4 {
 		uri += "/"
 	}
 	if len(userAgent) == 0 {
@@ -240,6 +240,14 @@ func requester(uri string, userAgent string, proxy string) {
 	headers := []header{
 		{"User-Agent", userAgent},
 	}
+
+	if len(req_headers) != 0 {
+		for _, _header := range req_headers {
+			header_split := strings.Split(_header, ":")
+			headers = append(headers, header{header_split[0], header_split[1]})
+		}
+	}
+
 	requestMethods(uri, headers, userProxy)
 	requestHeaders(uri, headers, userProxy)
 	requestEndPaths(uri, headers, userProxy)

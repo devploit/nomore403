@@ -10,10 +10,11 @@ import (
 )
 
 var (
-	cfgFile   string
-	uri       string
-	proxy     string
-	useragent string
+	cfgFile     string
+	uri         string
+	proxy       string
+	useragent   string
+	req_headers []string
 )
 
 // rootCmd
@@ -27,7 +28,7 @@ var rootCmd = &cobra.Command{
 			cmd.Help()
 			log.Fatal()
 		}
-		requester(uri, useragent, proxy)
+		requester(uri, proxy, useragent, req_headers)
 
 	},
 }
@@ -44,6 +45,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&uri, "uri", "u", "", "Target URL")
 	rootCmd.PersistentFlags().StringVarP(&proxy, "proxy", "p", "", "Proxy URL. For example: http://127.0.0.1:8080")
 	rootCmd.PersistentFlags().StringVarP(&useragent, "useragent", "a", "", "Set the User-Agent string (default 'dontgo403/0.2')")
+	rootCmd.PersistentFlags().StringSliceVarP(&req_headers, "header", "H", []string{""}, "Add a custom header to the requests (can be specified multiple times)")
 }
 
 // initConfig reads in config file and ENV variables if set.
