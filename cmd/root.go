@@ -10,24 +10,24 @@ import (
 )
 
 var (
-	cfgFile 	string
-	uri			string
-	proxy		string
-	useragent	string
+	cfgFile   string
+	uri       string
+	proxy     string
+	useragent string
 )
 
 // rootCmd
 var rootCmd = &cobra.Command{
 	Use:   "dontgo403",
 	Short: "Tool to bypass 40X response codes.",
-	Long: `Command line application that automates different ways to bypass 40X codes.`,
+	Long:  `Command line application that automates different ways to bypass 40X codes.`,
 
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(os.Args) < 3 {
 			cmd.Help()
 			log.Fatal()
 		}
-		requester(uri, proxy, useragent)
+		requester(uri, useragent, proxy)
 
 	},
 }
@@ -43,7 +43,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVarP(&uri, "uri", "u", "", "Target URL")
 	rootCmd.PersistentFlags().StringVarP(&proxy, "proxy", "p", "", "Proxy URL. For example: http://127.0.0.1:8080")
-	rootCmd.PersistentFlags().StringVarP(&useragent, "useragent", "a", "", "Set the User-Agent string (default 'dontgo403/0.1')")
+	rootCmd.PersistentFlags().StringVarP(&useragent, "useragent", "a", "", "Set the User-Agent string (default 'dontgo403/0.2')")
 }
 
 // initConfig reads in config file and ENV variables if set.
