@@ -19,12 +19,13 @@ If you want to edit or add new bypasses, you can add it directly to the specific
 ```bash
 ./dontgo403 -h
 
-Command line application that automates different attempts to bypass 40X codes
+Command line application that automates different ways to bypass 40X codes.
 
 Usage:
   dontgo403 [flags]
 
 Flags:
+  -H, --header strings     Add a custom header to the requests (can be specified multiple times)
   -h, --help               help for dontgo403
   -p, --proxy string       Proxy URL. For example: http://127.0.0.1:8080
   -u, --uri string         Target URL
