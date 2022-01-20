@@ -87,7 +87,7 @@ func requestHeaders(uri string, headers []header, proxy *url.URL) {
 			defer wg.Done()
 
 			h := strings.Split(line, " ")
-			headers = append(headers, header{h[0], h[1]})
+			headers := append(headers, header{h[0], h[1]})
 
 			statusCode, response, err := request("GET", uri, headers, proxy)
 			if err != nil {
