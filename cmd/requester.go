@@ -264,7 +264,7 @@ func requester(uri string, proxy string, userAgent string, req_headers []string,
 		uri += "/"
 	}
 	if len(userAgent) == 0 {
-		userAgent = "dontgo403/0.2"
+		userAgent = "dontgo403/0.3"
 	}
 
 	headers := []header{

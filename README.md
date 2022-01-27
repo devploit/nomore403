@@ -29,7 +29,7 @@ Flags:
   -h, --help               help for dontgo403
   -p, --proxy string       Proxy URL. For example: http://127.0.0.1:8080
   -u, --uri string         Target URL
-  -a, --useragent string   Set the User-Agent string (default 'dontgo403/0.2')
+  -a, --useragent string   Set the User-Agent string (default 'dontgo403/0.3')
 ```
 
 
