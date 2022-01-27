@@ -1,0 +1,6 @@
+Referer /admin
+X-HTTP-Method-Override POST
+X-HTTP-Method-Override PUT
+X-Original-URL /admin
+X-Override-URL /admin
+X-Rewrite-URL /admin

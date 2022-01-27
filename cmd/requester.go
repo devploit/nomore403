@@ -68,7 +68,7 @@ func requestMethods(uri string, headers []header, proxy *url.URL) {
 	printResponse(results)
 }
 
-func requestHeaders(uri string, headers []header, proxy *url.URL) {
+func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp string) {
 	color.Cyan("\n[####] VERB TAMPERING [####]")
 
 	var lines []string
@@ -77,12 +77,42 @@ func requestHeaders(uri string, headers []header, proxy *url.URL) {
 		log.Fatal(err)
 	}
 
+	var ips []string
+	if len(bypassIp) != 0 {
+		ips = []string{bypassIp}
+	} else {
+		ips = []string{"127.0.0.1", "localhost"}
+	}
+
+	simpleheaders, err := parseFile("payloads/simpleheaders")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	var wg sync.WaitGroup
-	wg.Add(len(lines))
+	wg.Add(len(lines)*len(ips) + len(simpleheaders))
 
 	results := []Result{}
 
-	for _, line := range lines {
+	for _, ip := range ips {
+		for _, line := range lines {
+			go func(line, ip string) {
+				defer wg.Done()
+
+				headers := append(headers, header{line, ip})
+
+				statusCode, response, err := request("GET", uri, headers, proxy)
+
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				results = append(results, Result{line + ": " + ip, statusCode, len(response)})
+			}(line, ip)
+		}
+	}
+
+	for _, simpleheader := range simpleheaders {
 		go func(line string) {
 			defer wg.Done()
 
@@ -95,7 +125,7 @@ func requestHeaders(uri string, headers []header, proxy *url.URL) {
 			}
 
 			results = append(results, Result{x[0] + ": " + x[1], statusCode, len(response)})
-		}(line)
+		}(simpleheader)
 	}
 	wg.Wait()
 	printResponse(results)
@@ -221,7 +251,7 @@ func requestCapital(uri string, headers []header, proxy *url.URL) {
 	printResponse(results)
 }
 
-func requester(uri string, proxy string, userAgent string, req_headers []string) {
+func requester(uri string, proxy string, userAgent string, req_headers []string, bypassIp string) {
 	if len(proxy) != 0 {
 		if !strings.Contains(proxy, "http") {
 			proxy = "http://" + proxy
@@ -241,7 +271,7 @@ func requester(uri string, proxy string, userAgent string, req_headers []string)
 		{"User-Agent", userAgent},
 	}
 
-	if len(req_headers) != 0 {
+	if len(req_headers[0]) != 0 {
 		for _, _header := range req_headers {
 			header_split := strings.Split(_header, ":")
 			headers = append(headers, header{header_split[0], header_split[1]})
@@ -249,7 +279,7 @@ func requester(uri string, proxy string, userAgent string, req_headers []string)
 	}
 
 	requestMethods(uri, headers, userProxy)
-	requestHeaders(uri, headers, userProxy)
+	requestHeaders(uri, headers, userProxy, bypassIp)
 	requestEndPaths(uri, headers, userProxy)
 	requestMidPaths(uri, headers, userProxy)
 	requestCapital(uri, headers, userProxy)

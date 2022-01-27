@@ -15,6 +15,7 @@ var (
 	proxy       string
 	useragent   string
 	req_headers []string
+	bypassIp    string
 )
 
 // rootCmd
@@ -28,7 +29,7 @@ var rootCmd = &cobra.Command{
 			cmd.Help()
 			log.Fatal()
 		}
-		requester(uri, proxy, useragent, req_headers)
+		requester(uri, proxy, useragent, req_headers, bypassIp)
 
 	},
 }
@@ -46,6 +47,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&proxy, "proxy", "p", "", "Proxy URL. For example: http://127.0.0.1:8080")
 	rootCmd.PersistentFlags().StringVarP(&useragent, "useragent", "a", "", "Set the User-Agent string (default 'dontgo403/0.2')")
 	rootCmd.PersistentFlags().StringSliceVarP(&req_headers, "header", "H", []string{""}, "Add a custom header to the requests (can be specified multiple times)")
+	rootCmd.PersistentFlags().StringVarP(&bypassIp, "bypassIp", "b", "", "Try bypass tests with a specific IP address (or hostname). i.e.: 'X-Forwarded-For: 192.168.0.1' instead of 'X-Forwarded-For: 127.0.0.1'")
 }
 
 // initConfig reads in config file and ENV variables if set.
