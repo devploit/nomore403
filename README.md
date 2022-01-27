@@ -25,6 +25,7 @@ Usage:
   dontgo403 [flags]
 
 Flags:
+  -b, --bypassIp string    Try bypass tests with a specific IP address (or hostname). i.e.: 'X-Forwarded-For: 192.168.0.1' instead of 'X-Forwarded-For: 127.0.0.1'
   -H, --header strings     Add a custom header to the requests (can be specified multiple times)
   -h, --help               help for dontgo403
   -p, --proxy string       Proxy URL. For example: http://127.0.0.1:8080
