@@ -35,7 +35,7 @@ Flags:
 
 
 ### Example of usage
-[![asciicast](https://asciinema.org/a/9AFjTMaPDdnQ6IIQLnvW22AyV.svg)](https://asciinema.org/a/9AFjTMaPDdnQ6IIQLnvW22AyV)
+[![asciicast](https://asciinema.org/a/xtD6Zcx2fZj5JgRdXEUi4rdqJ.svg)](https://asciinema.org/a/xtD6Zcx2fZj5JgRdXEUi4rdqJ)
 
 
 ### Contact
