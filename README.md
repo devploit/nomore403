@@ -39,4 +39,5 @@ Flags:
 
 
 ### Contact
-[Twitter](https://www.twitter.com/devploit), [Telegram](https://t.me/devploit)
+[![Twitter: devploit](https://img.shields.io/twitter/follow/devploit?style=social)](https://twitter.com/devploit)
+[![Telegram: devploit](https://img.shields.io/badge/-devploit-blue?style=flat-square&logo=Telegram&logoColor=white&link=https://t.me/devploit)](https://t.me/devploit)
