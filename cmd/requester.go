@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cheynewallace/tabby"
 	"github.com/fatih/color"
@@ -53,6 +54,7 @@ func requestMethods(uri string, headers []header, proxy *url.URL) {
 	results := []Result{}
 
 	for _, line := range lines {
+		time.Sleep(time.Duration(delay) * time.Millisecond)
 		go func(line string) {
 			defer wg.Done()
 
@@ -96,6 +98,7 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 
 	for _, ip := range ips {
 		for _, line := range lines {
+			time.Sleep(time.Duration(delay) * time.Millisecond)
 			go func(line, ip string) {
 				defer wg.Done()
 
@@ -113,6 +116,7 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 	}
 
 	for _, simpleheader := range simpleheaders {
+		time.Sleep(time.Duration(delay) * time.Millisecond)
 		go func(line string) {
 			defer wg.Done()
 
@@ -146,6 +150,7 @@ func requestEndPaths(uri string, headers []header, proxy *url.URL) {
 	results := []Result{}
 
 	for _, line := range lines {
+		time.Sleep(time.Duration(delay) * time.Millisecond)
 		go func(line string) {
 			defer wg.Done()
 			statusCode, response, err := request("GET", uri+line, headers, proxy)
@@ -185,6 +190,7 @@ func requestMidPaths(uri string, headers []header, proxy *url.URL) {
 	results := []Result{}
 
 	for _, line := range lines {
+		time.Sleep(time.Duration(delay) * time.Millisecond)
 		go func(line string) {
 			defer wg.Done()
 
@@ -227,6 +233,7 @@ func requestCapital(uri string, headers []header, proxy *url.URL) {
 	results := []Result{}
 
 	for _, z := range uripath {
+		time.Sleep(time.Duration(delay) * time.Millisecond)
 		go func(z string) {
 			defer wg.Done()
 
