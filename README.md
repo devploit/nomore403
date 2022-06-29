@@ -7,9 +7,13 @@
 dontgo403 is a tool to bypass 40X errors.
 
 ### Installation
+Grab the latest release for your OS from [RELEASES](https://github.com/devploit/dontgo403/releases)  
+
+Or compile by your own:
 ```bash
 git clone https://github.com/devploit/dontgo403; cd dontgo403; go get; go build
 ```
+
 
 ### Customization
 If you want to edit or add new bypasses, you can add it directly to the specific file in [payloads](https://github.com/devploit/dontgo403/tree/main/payloads) folder and the tool will use it.
