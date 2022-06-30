@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -26,12 +28,26 @@ var rootCmd = &cobra.Command{
 	Long:  `Command line application that automates different ways to bypass 40X codes.`,
 
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(os.Args) < 3 {
-			cmd.Help()
-			log.Fatal()
+		fi, _ := os.Stdin.Stat()
+		if (fi.Mode() & os.ModeCharDevice) == 0 {
+			bytes, _ := ioutil.ReadAll(os.Stdin)
+			content := string(bytes)
+			lines := strings.Split(string(content), "\n")
+			lastchar := (lines[len(lines)-1])
+			for _, line := range lines {
+				uri = line
+				if uri == lastchar {
+					break
+				}
+				requester(uri, proxy, useragent, req_headers, bypassIp)
+			}
+		} else {
+			if len(uri) == 0 {
+				cmd.Help()
+				log.Fatal()
+			}
+			requester(uri, proxy, useragent, req_headers, bypassIp)
 		}
-		requester(uri, proxy, useragent, req_headers, bypassIp)
-
 	},
 }
 
@@ -46,7 +62,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVarP(&uri, "uri", "u", "", "Target URL")
 	rootCmd.PersistentFlags().StringVarP(&proxy, "proxy", "p", "", "Proxy URL. For example: http://127.0.0.1:8080")
-	rootCmd.PersistentFlags().StringVarP(&useragent, "useragent", "a", "", "Set the User-Agent string (default 'dontgo403/0.3')")
+	rootCmd.PersistentFlags().StringVarP(&useragent, "useragent", "a", "", "Set the User-Agent string (default 'dontgo403/0.5')")
 	rootCmd.PersistentFlags().IntVarP(&delay, "delay", "d", 0, "Set a delay (in ms) between each request")
 	rootCmd.PersistentFlags().StringSliceVarP(&req_headers, "header", "H", []string{""}, "Add a custom header to the requests (can be specified multiple times)")
 	rootCmd.PersistentFlags().StringVarP(&bypassIp, "bypassIp", "b", "", "Try bypass tests with a specific IP address (or hostname). i.e.: 'X-Forwarded-For: 192.168.0.1' instead of 'X-Forwarded-For: 127.0.0.1'")
