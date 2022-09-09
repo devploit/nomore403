@@ -83,7 +83,10 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 	if len(bypassIp) != 0 {
 		ips = []string{bypassIp}
 	} else {
-		ips = []string{"127.0.0.1", "localhost"}
+		ips, err := parseFile("payloads/ips")
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	simpleheaders, err := parseFile("payloads/simpleheaders")
