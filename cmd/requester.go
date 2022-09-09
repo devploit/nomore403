@@ -83,7 +83,7 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 	if len(bypassIp) != 0 {
 		ips = []string{bypassIp}
 	} else {
-		ips, err := parseFile("payloads/ips")
+		ips, err = parseFile("payloads/ips")
 		if err != nil {
 			log.Fatal(err)
 		}
