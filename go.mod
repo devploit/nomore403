@@ -1,4 +1,4 @@
-module github.com/devploit/dontgo403
+module dontgo403
 
 go 1.17
 
