@@ -19,6 +19,7 @@ var (
 	delay       int
 	req_headers []string
 	bypassIp    string
+	folder      string
 )
 
 // rootCmd
@@ -39,14 +40,14 @@ var rootCmd = &cobra.Command{
 				if uri == lastchar {
 					break
 				}
-				requester(uri, proxy, useragent, req_headers, bypassIp)
+				requester(uri, proxy, useragent, req_headers, bypassIp, folder)
 			}
 		} else {
 			if len(uri) == 0 {
 				cmd.Help()
 				log.Fatal()
 			}
-			requester(uri, proxy, useragent, req_headers, bypassIp)
+			requester(uri, proxy, useragent, req_headers, bypassIp, folder)
 		}
 	},
 }
@@ -66,6 +67,7 @@ func init() {
 	rootCmd.PersistentFlags().IntVarP(&delay, "delay", "d", 0, "Set a delay (in ms) between each request")
 	rootCmd.PersistentFlags().StringSliceVarP(&req_headers, "header", "H", []string{""}, "Add a custom header to the requests (can be specified multiple times)")
 	rootCmd.PersistentFlags().StringVarP(&bypassIp, "bypassIp", "b", "", "Try bypass tests with a specific IP address (or hostname). i.e.: 'X-Forwarded-For: 192.168.0.1' instead of 'X-Forwarded-For: 127.0.0.1'")
+	rootCmd.PersistentFlags().StringVarP(&folder, "folder", "f", "", "Define payloads folder (if it's not in the same path as binary)")
 }
 
 // initConfig reads in config file and ENV variables if set.

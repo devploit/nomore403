@@ -39,11 +39,11 @@ func printResponse(results []Result) {
 
 }
 
-func requestMethods(uri string, headers []header, proxy *url.URL) {
+func requestMethods(uri string, headers []header, proxy *url.URL, folder string) {
 	color.Cyan("\n[####] HTTP METHODS [####]")
 
 	var lines []string
-	lines, err := parseFile("payloads/httpmethods")
+	lines, err := parseFile(folder + "/httpmethods")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -70,11 +70,11 @@ func requestMethods(uri string, headers []header, proxy *url.URL) {
 	printResponse(results)
 }
 
-func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp string) {
+func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp string, folder string) {
 	color.Cyan("\n[####] VERB TAMPERING [####]")
 
 	var lines []string
-	lines, err := parseFile("payloads/headers")
+	lines, err := parseFile(folder + "/headers")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -83,13 +83,13 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 	if len(bypassIp) != 0 {
 		ips = []string{bypassIp}
 	} else {
-		ips, err = parseFile("payloads/ips")
+		ips, err = parseFile(folder + "/ips")
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
 
-	simpleheaders, err := parseFile("payloads/simpleheaders")
+	simpleheaders, err := parseFile(folder + "/simpleheaders")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -138,11 +138,11 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 	printResponse(results)
 }
 
-func requestEndPaths(uri string, headers []header, proxy *url.URL) {
+func requestEndPaths(uri string, headers []header, proxy *url.URL, folder string) {
 	color.Cyan("\n[####] CUSTOM PATHS [####]")
 
 	var lines []string
-	lines, err := parseFile("payloads/endpaths")
+	lines, err := parseFile(folder + "/endpaths")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -168,9 +168,9 @@ func requestEndPaths(uri string, headers []header, proxy *url.URL) {
 	printResponse(results)
 }
 
-func requestMidPaths(uri string, headers []header, proxy *url.URL) {
+func requestMidPaths(uri string, headers []header, proxy *url.URL, folder string) {
 	var lines []string
-	lines, err := parseFile("payloads/midpaths")
+	lines, err := parseFile(folder + "/midpaths")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func requestCapital(uri string, headers []header, proxy *url.URL) {
 	printResponse(results)
 }
 
-func requester(uri string, proxy string, userAgent string, req_headers []string, bypassIp string) {
+func requester(uri string, proxy string, userAgent string, req_headers []string, bypassIp string, folder string) {
 	if len(proxy) != 0 {
 		if !strings.Contains(proxy, "http") {
 			proxy = "http://" + proxy
@@ -288,9 +288,9 @@ func requester(uri string, proxy string, userAgent string, req_headers []string,
 		}
 	}
 
-	requestMethods(uri, headers, userProxy)
-	requestHeaders(uri, headers, userProxy, bypassIp)
-	requestEndPaths(uri, headers, userProxy)
-	requestMidPaths(uri, headers, userProxy)
+	requestMethods(uri, headers, userProxy, folder)
+	requestHeaders(uri, headers, userProxy, bypassIp, folder)
+	requestEndPaths(uri, headers, userProxy, folder)
+	requestMidPaths(uri, headers, userProxy, folder)
 	requestCapital(uri, headers, userProxy)
 }
