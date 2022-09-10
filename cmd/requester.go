@@ -60,7 +60,7 @@ func requestMethods(uri string, headers []header, proxy *url.URL) {
 
 			statusCode, response, err := request(line, uri, headers, proxy)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
 			}
 
 			results = append(results, Result{line, statusCode, len(response)})
@@ -110,7 +110,7 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 				statusCode, response, err := request("GET", uri, headers, proxy)
 
 				if err != nil {
-					log.Fatal(err)
+					log.Println(err)
 				}
 
 				results = append(results, Result{line + ": " + ip, statusCode, len(response)})
@@ -128,7 +128,7 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 
 			statusCode, response, err := request("GET", uri, headers, proxy)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
 			}
 
 			results = append(results, Result{x[0] + ": " + x[1], statusCode, len(response)})
@@ -158,7 +158,7 @@ func requestEndPaths(uri string, headers []header, proxy *url.URL) {
 			defer wg.Done()
 			statusCode, response, err := request("GET", uri+line, headers, proxy)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
 			}
 
 			results = append(results, Result{uri + line, statusCode, len(response)})
@@ -206,7 +206,7 @@ func requestMidPaths(uri string, headers []header, proxy *url.URL) {
 
 			statusCode, response, err := request("GET", fullpath, headers, proxy)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
 			}
 
 			results = append(results, Result{fullpath, statusCode, len(response)})
@@ -251,7 +251,7 @@ func requestCapital(uri string, headers []header, proxy *url.URL) {
 
 			statusCode, response, err := request("GET", fullpath, headers, proxy)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
 			}
 
 			results = append(results, Result{fullpath, statusCode, len(response)})
