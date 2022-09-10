@@ -36,6 +36,7 @@ Flags:
   -p, --proxy string       Proxy URL. For example: http://127.0.0.1:8080
   -u, --uri string         Target URL
   -a, --useragent string   Set the User-Agent string (default 'dontgo403/0.5')
+  -f, --folder string      Set payloads folder path in case the binary is not in the same path
 ```
 
 

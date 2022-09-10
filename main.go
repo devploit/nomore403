@@ -16,7 +16,7 @@ limitations under the License.
 
 package main
 
-import "dontgo403/cmd"
+import "github.com/devploit/dontgo403/cmd"
 
 func main() {
 	cmd.Execute()
