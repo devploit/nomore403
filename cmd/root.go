@@ -29,6 +29,9 @@ var rootCmd = &cobra.Command{
 	Long:  `Command line application that automates different ways to bypass 40X codes.`,
 
 	Run: func(cmd *cobra.Command, args []string) {
+		if len(folder) == 0 {
+			folder = "payloads"
+		}
 		fi, _ := os.Stdin.Stat()
 		if (fi.Mode() & os.ModeCharDevice) == 0 {
 			bytes, _ := ioutil.ReadAll(os.Stdin)
