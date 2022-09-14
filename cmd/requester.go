@@ -5,11 +5,11 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/cheynewallace/tabby"
 	"github.com/fatih/color"
+	"github.com/zenthangplus/goccm"
 )
 
 type Result struct {
@@ -48,25 +48,24 @@ func requestMethods(uri string, headers []header, proxy *url.URL, folder string)
 		log.Fatal(err)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(len(lines))
+	w := goccm.New(max_goroutines)
 
 	results := []Result{}
 
 	for _, line := range lines {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
+		w.Wait()
 		go func(line string) {
-			defer wg.Done()
-
 			statusCode, response, err := request(line, uri, headers, proxy)
 			if err != nil {
 				log.Println(err)
 			}
 
 			results = append(results, Result{line, statusCode, len(response)})
+			w.Done()
 		}(line)
 	}
-	wg.Wait()
+	w.WaitAllDone()
 	printResponse(results)
 }
 
@@ -94,17 +93,15 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 		log.Fatal(err)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(len(lines)*len(ips) + len(simpleheaders))
+	w := goccm.New(max_goroutines)
 
 	results := []Result{}
 
 	for _, ip := range ips {
 		for _, line := range lines {
 			time.Sleep(time.Duration(delay) * time.Millisecond)
+			w.Wait()
 			go func(line, ip string) {
-				defer wg.Done()
-
 				headers := append(headers, header{line, ip})
 
 				statusCode, response, err := request("GET", uri, headers, proxy)
@@ -114,15 +111,15 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 				}
 
 				results = append(results, Result{line + ": " + ip, statusCode, len(response)})
+				w.Done()
 			}(line, ip)
 		}
 	}
 
 	for _, simpleheader := range simpleheaders {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
+		w.Wait()
 		go func(line string) {
-			defer wg.Done()
-
 			x := strings.Split(line, " ")
 			headers := append(headers, header{x[0], x[1]})
 
@@ -132,9 +129,10 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 			}
 
 			results = append(results, Result{x[0] + ": " + x[1], statusCode, len(response)})
+			w.Done()
 		}(simpleheader)
 	}
-	wg.Wait()
+	w.WaitAllDone()
 	printResponse(results)
 }
 
@@ -147,24 +145,24 @@ func requestEndPaths(uri string, headers []header, proxy *url.URL, folder string
 		log.Fatal(err)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(len(lines))
+	w := goccm.New(max_goroutines)
 
 	results := []Result{}
 
 	for _, line := range lines {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
+		w.Wait()
 		go func(line string) {
-			defer wg.Done()
 			statusCode, response, err := request("GET", uri+line, headers, proxy)
 			if err != nil {
 				log.Println(err)
 			}
 
 			results = append(results, Result{uri + line, statusCode, len(response)})
+			w.Done()
 		}(line)
 	}
-	wg.Wait()
+	w.WaitAllDone()
 	printResponse(results)
 }
 
@@ -187,16 +185,14 @@ func requestMidPaths(uri string, headers []header, proxy *url.URL, folder string
 	baseuri := strings.ReplaceAll(uri, uripath, "")
 	baseuri = baseuri[:len(baseuri)-1]
 
-	var wg sync.WaitGroup
-	wg.Add(len(lines))
+	w := goccm.New(max_goroutines)
 
 	results := []Result{}
 
 	for _, line := range lines {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
+		w.Wait()
 		go func(line string) {
-			defer wg.Done()
-
 			var fullpath string
 			if uri[len(uri)-1:] == "/" {
 				fullpath = baseuri + line + uripath + "/"
@@ -210,9 +206,10 @@ func requestMidPaths(uri string, headers []header, proxy *url.URL, folder string
 			}
 
 			results = append(results, Result{fullpath, statusCode, len(response)})
+			w.Done()
 		}(line)
 	}
-	wg.Wait()
+	w.WaitAllDone()
 	printResponse(results)
 }
 
@@ -230,16 +227,14 @@ func requestCapital(uri string, headers []header, proxy *url.URL) {
 	baseuri := strings.ReplaceAll(uri, uripath, "")
 	baseuri = baseuri[:len(baseuri)-1]
 
-	var wg sync.WaitGroup
-	wg.Add(len(uripath))
+	w := goccm.New(max_goroutines)
 
 	results := []Result{}
 
 	for _, z := range uripath {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
+		w.Wait()
 		go func(z string) {
-			defer wg.Done()
-
 			newpath := strings.ReplaceAll(uripath, string(z), strings.ToUpper(string(z)))
 
 			var fullpath string
@@ -255,9 +250,10 @@ func requestCapital(uri string, headers []header, proxy *url.URL) {
 			}
 
 			results = append(results, Result{fullpath, statusCode, len(response)})
+			w.Done()
 		}(string(z))
 	}
-	wg.Wait()
+	w.WaitAllDone()
 	printResponse(results)
 }
 
@@ -274,7 +270,7 @@ func requester(uri string, proxy string, userAgent string, req_headers []string,
 		uri += "/"
 	}
 	if len(userAgent) == 0 {
-		userAgent = "dontgo403/0.5"
+		userAgent = "dontgo403"
 	}
 
 	headers := []header{
