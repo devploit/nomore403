@@ -67,7 +67,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&uri, "uri", "u", "", "Target URL")
 	rootCmd.PersistentFlags().StringVarP(&proxy, "proxy", "p", "", "Proxy URL. For example: http://127.0.0.1:8080")
 	rootCmd.PersistentFlags().StringVarP(&useragent, "useragent", "a", "", "Set the User-Agent string (default 'dontgo403/0.5')")
-	rootCmd.PersistentFlags().IntVarP(&delay, "delay", "d", 0, "Set a delay (in ms) between each request")
+	rootCmd.PersistentFlags().IntVarP(&delay, "delay", "d", 3, "Set a delay (in ms) between each request. Default: 3ms")
 	rootCmd.PersistentFlags().StringSliceVarP(&req_headers, "header", "H", []string{""}, "Add a custom header to the requests (can be specified multiple times)")
 	rootCmd.PersistentFlags().StringVarP(&bypassIp, "bypassIp", "b", "", "Try bypass tests with a specific IP address (or hostname). i.e.: 'X-Forwarded-For: 192.168.0.1' instead of 'X-Forwarded-For: 127.0.0.1'")
 	rootCmd.PersistentFlags().StringVarP(&folder, "folder", "f", "", "Define payloads folder (if it's not in the same path as binary)")

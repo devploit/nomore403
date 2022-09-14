@@ -61,6 +61,8 @@ func request(method, uri string, headers []header, proxy *url.URL) (statusCode i
 	req, err := http.NewRequest(method, uri, nil)
 	if err != nil {
 		return 0, nil, err
+	} else {
+		req.Close = true
 	}
 
 	for _, header := range headers {
@@ -76,6 +78,8 @@ func request(method, uri string, headers []header, proxy *url.URL) (statusCode i
 	if err != nil {
 		return 0, nil, err
 	}
+
+	res.Body.Close()
 
 	return res.StatusCode, resp, nil
 
