@@ -21,7 +21,7 @@ var (
 	req_headers    []string
 	bypassIp       string
 	folder         string
-	method         string
+	httpMethod     string
 )
 
 // rootCmd
@@ -45,14 +45,14 @@ var rootCmd = &cobra.Command{
 				if uri == lastchar {
 					break
 				}
-				requester(uri, proxy, useragent, req_headers, bypassIp, folder, method)
+				requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod)
 			}
 		} else {
 			if len(uri) == 0 {
 				cmd.Help()
 				log.Fatal()
 			}
-			requester(uri, proxy, useragent, req_headers, bypassIp, folder, method)
+			requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod)
 		}
 	},
 }
