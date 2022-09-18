@@ -74,7 +74,7 @@ func init() {
 	rootCmd.PersistentFlags().StringSliceVarP(&req_headers, "header", "H", []string{""}, "Add a custom header to the requests (can be specified multiple times)")
 	rootCmd.PersistentFlags().StringVarP(&bypassIp, "bypassIp", "b", "", "Try bypass tests with a specific IP address (or hostname). i.e.: 'X-Forwarded-For: 192.168.0.1' instead of 'X-Forwarded-For: 127.0.0.1'")
 	rootCmd.PersistentFlags().StringVarP(&folder, "folder", "f", "", "Define payloads folder (if it's not in the same path as binary)")
-	rootCmd.PersistentFlags().StringVarP(&method, "method", "m", "", "HTTP method to use (default 'GET')")
+	rootCmd.PersistentFlags().StringVarP(&method, "httpMethod", "hp", "", "HTTP method to use (default 'GET')")
 }
 
 // initConfig reads in config file and ENV variables if set.
