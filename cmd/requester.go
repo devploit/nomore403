@@ -69,7 +69,7 @@ func requestMethods(uri string, headers []header, proxy *url.URL, folder string)
 	printResponse(results)
 }
 
-func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp string, folder string) {
+func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp string, folder string, method string) {
 	color.Cyan("\n[####] VERB TAMPERING [####]")
 
 	var lines []string
@@ -104,7 +104,7 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 			go func(line, ip string) {
 				headers := append(headers, header{line, ip})
 
-				statusCode, response, err := request("GET", uri, headers, proxy)
+				statusCode, response, err := request(method, uri, headers, proxy)
 
 				if err != nil {
 					log.Println(err)
@@ -123,7 +123,7 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 			x := strings.Split(line, " ")
 			headers := append(headers, header{x[0], x[1]})
 
-			statusCode, response, err := request("GET", uri, headers, proxy)
+			statusCode, response, err := request(method, uri, headers, proxy)
 			if err != nil {
 				log.Println(err)
 			}
@@ -136,7 +136,7 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 	printResponse(results)
 }
 
-func requestEndPaths(uri string, headers []header, proxy *url.URL, folder string) {
+func requestEndPaths(uri string, headers []header, proxy *url.URL, folder string, method string) {
 	color.Cyan("\n[####] CUSTOM PATHS [####]")
 
 	var lines []string
@@ -153,7 +153,7 @@ func requestEndPaths(uri string, headers []header, proxy *url.URL, folder string
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
 		go func(line string) {
-			statusCode, response, err := request("GET", uri+line, headers, proxy)
+			statusCode, response, err := request(method, uri+line, headers, proxy)
 			if err != nil {
 				log.Println(err)
 			}
@@ -166,7 +166,7 @@ func requestEndPaths(uri string, headers []header, proxy *url.URL, folder string
 	printResponse(results)
 }
 
-func requestMidPaths(uri string, headers []header, proxy *url.URL, folder string) {
+func requestMidPaths(uri string, headers []header, proxy *url.URL, folder string, method string) {
 	var lines []string
 	lines, err := parseFile(folder + "/midpaths")
 	if err != nil {
@@ -200,7 +200,7 @@ func requestMidPaths(uri string, headers []header, proxy *url.URL, folder string
 				fullpath = baseuri + "/" + line + uripath
 			}
 
-			statusCode, response, err := request("GET", fullpath, headers, proxy)
+			statusCode, response, err := request(method, fullpath, headers, proxy)
 			if err != nil {
 				log.Println(err)
 			}
@@ -213,7 +213,7 @@ func requestMidPaths(uri string, headers []header, proxy *url.URL, folder string
 	printResponse(results)
 }
 
-func requestCapital(uri string, headers []header, proxy *url.URL) {
+func requestCapital(uri string, headers []header, proxy *url.URL, method string) {
 	color.Cyan("\n[####] CAPITALIZATION [####]")
 
 	x := strings.Split(uri, "/")
@@ -244,7 +244,7 @@ func requestCapital(uri string, headers []header, proxy *url.URL) {
 				fullpath = baseuri + "/" + newpath
 			}
 
-			statusCode, response, err := request("GET", fullpath, headers, proxy)
+			statusCode, response, err := request(method, fullpath, headers, proxy)
 			if err != nil {
 				log.Println(err)
 			}
@@ -257,7 +257,7 @@ func requestCapital(uri string, headers []header, proxy *url.URL) {
 	printResponse(results)
 }
 
-func requester(uri string, proxy string, userAgent string, req_headers []string, bypassIp string, folder string) {
+func requester(uri string, proxy string, userAgent string, req_headers []string, bypassIp string, folder string, method string) {
 	if len(proxy) != 0 {
 		if !strings.Contains(proxy, "http") {
 			proxy = "http://" + proxy
@@ -272,6 +272,9 @@ func requester(uri string, proxy string, userAgent string, req_headers []string,
 	if len(userAgent) == 0 {
 		userAgent = "dontgo403"
 	}
+	if len(method) == 0 {
+		method = "GET"
+	}
 
 	headers := []header{
 		{"User-Agent", userAgent},
@@ -285,8 +288,8 @@ func requester(uri string, proxy string, userAgent string, req_headers []string,
 	}
 
 	requestMethods(uri, headers, userProxy, folder)
-	requestHeaders(uri, headers, userProxy, bypassIp, folder)
-	requestEndPaths(uri, headers, userProxy, folder)
-	requestMidPaths(uri, headers, userProxy, folder)
-	requestCapital(uri, headers, userProxy)
+	requestHeaders(uri, headers, userProxy, bypassIp, folder, method)
+	requestEndPaths(uri, headers, userProxy, folder, method)
+	requestMidPaths(uri, headers, userProxy, folder, method)
+	requestCapital(uri, headers, userProxy, method)
 }
