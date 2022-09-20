@@ -29,15 +29,16 @@ Usage:
   dontgo403 [flags]
 
 Flags:
-  -b, --bypassIp string     Try bypass tests with a specific IP address (or hostname). i.e.: 'X-Forwarded-For: 192.168.0.1' instead of 'X-Forwarded-For: 127.0.0.1'
-  -m, --max_goroutines int  Set the max number of goroutines working at same time. Default: 50
-  -d, --delay int           Set a delay (in ms) between each request. Default: 0ms
-  -H, --header strings      Add a custom header to the requests (can be specified multiple times)
-  -h, --help                help for dontgo403
-  -p, --proxy string        Proxy URL. For example: http://127.0.0.1:8080
-  -u, --uri string          Target URL
-  -a, --useragent string    Set the User-Agent string (default 'dontgo403')
-  -f, --folder string       Set payloads folder path in case the binary is not in the same path
+  -b, --bypassIp string      Try bypass tests with a specific IP address (or hostname). i.e.: 'X-Forwarded-For: 192.168.0.1' instead of 'X-Forwarded-For: 127.0.0.1'
+  -d, --delay int            Set a delay (in ms) between each request. Default: 0ms
+  -f, --folder string        Define payloads folder (if it's not in the same path as binary)
+  -H, --header strings       Add a custom header to the requests (can be specified multiple times)
+  -h, --help                 help for dontgo403
+  -t, --httpMethod string    HTTP method to use (default 'GET')
+  -m, --max_goroutines int   Set the max number of goroutines working at same time. Default: 50 (default 50)
+  -p, --proxy string         Proxy URL. For example: http://127.0.0.1:8080
+  -u, --uri string           Target URL
+  -a, --useragent string     Set the User-Agent string (default 'dontgo403')
 ```
 
 
