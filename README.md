@@ -2,7 +2,7 @@
 <img src="https://i.imgur.com/T5P5ZG0.png" width="600" height="150" >
 </p>
 
-[![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/dwyl/esta/issues)
+[![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/devploit/dontgo403/issues)
 
 dontgo403 is a tool to bypass 40X errors.
 
