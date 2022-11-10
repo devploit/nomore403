@@ -40,7 +40,7 @@ func printResponse(results []Result) {
 }
 
 func requestMethods(uri string, headers []header, proxy *url.URL, folder string) {
-	color.Cyan("\n[####] HTTP METHODS [####]")
+	color.Cyan("\n[####] VERB TAMPERING [####]")
 
 	var lines []string
 	lines, err := parseFile(folder + "/httpmethods")
@@ -70,7 +70,7 @@ func requestMethods(uri string, headers []header, proxy *url.URL, folder string)
 }
 
 func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp string, folder string, method string) {
-	color.Cyan("\n[####] VERB TAMPERING [####]")
+	color.Cyan("\n[####] HEADERS [####]")
 
 	var lines []string
 	lines, err := parseFile(folder + "/headers")
