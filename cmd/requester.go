@@ -42,7 +42,7 @@ func printResponse(results []Result) {
 
 // requestMethods makes HTTP requests using a list of methods from a file and prints the results.
 func requestMethods(uri string, headers []header, proxy *url.URL, folder string) {
-	color.Cyan("\n[####] HTTP METHODS [####]")
+	color.Cyan("\n[####] VERB TAMPERING [####]")
 
 	var lines []string
 	lines, err := parseFile(folder + "/httpmethods")
@@ -73,7 +73,7 @@ func requestMethods(uri string, headers []header, proxy *url.URL, folder string)
 
 // requestHeaders makes HTTP requests using a list of headers from a file and prints the results. It can also bypass IP address restrictions by specifying a bypass IP address.
 func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp string, folder string, method string) {
-	color.Cyan("\n[####] VERB TAMPERING [####]")
+	color.Cyan("\n[####] HEADERS [####]")
 
 	var lines []string
 	lines, err := parseFile(folder + "/headers")
