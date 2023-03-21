@@ -12,5 +12,8 @@
 # Built Visual Studio Code Extensions
 *.vsix
 
+# Test requests files
+request.txt
+
 # Built binary
 dontgo403

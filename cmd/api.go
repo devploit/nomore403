@@ -3,67 +3,77 @@ package cmd
 import (
 	"bufio"
 	"crypto/tls"
+	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
-// Reads a file given its filename and returns a list containing each of its lines.
-func parseFile(filename string) (lines []string, err error) {
-
+// parseFile reads a file given its filename and returns a list containing each of its lines.
+func parseFile(filename string) ([]string, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
 
+	lines := []string{}
 	scanner := bufio.NewScanner(file)
-	scanner.Split(bufio.ScanLines)
-
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
-
-	err = file.Close()
-	if err != nil {
+	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
 
 	return lines, nil
 }
 
+// header represents an HTTP header.
 type header struct {
 	key   string
 	value string
 }
 
-// Makes a GET request using headers `headers` proxy `proxy`.
+// request makes an HTTP request using headers `headers` and proxy `proxy`.
 //
-// Uses a custom method if specified.
-func request(method, uri string, headers []header, proxy *url.URL) (statusCode int, response []byte, err error) {
-
-	if method == "" { // check if it is nil
+// If `method` is empty, it defaults to "GET".
+func request(method, uri string, headers []header, proxy *url.URL) (int, []byte, error) {
+	if method == "" {
 		method = "GET"
 	}
 
-	var _proxy *url.URL
-	if len(proxy.Host) != 0 {
-		_proxy = proxy
-	} else {
-		_proxy = nil
+	if len(proxy.Host) == 0 {
+		proxy = nil
 	}
 
-	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(_proxy),
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DialContext: (&net.Dialer{Timeout: 6 * time.Second}).DialContext}}
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxy),
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+			DialContext: (&net.Dialer{
+				Timeout:   6 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
 
 	req, err := http.NewRequest(method, uri, nil)
 	if err != nil {
 		return 0, nil, err
-	} else {
-		req.Close = true
 	}
+	req.Close = true
 
 	for _, header := range headers {
 		req.Header.Add(header.key, header.value)
@@ -73,14 +83,77 @@ func request(method, uri string, headers []header, proxy *url.URL) (statusCode i
 	if err != nil {
 		return 0, nil, err
 	}
+	defer res.Body.Close()
 
 	resp, err := httputil.DumpResponse(res, true)
 	if err != nil {
 		return 0, nil, err
 	}
 
-	res.Body.Close()
-
 	return res.StatusCode, resp, nil
+}
 
+// makeRequests reads the lines from the file at `filename` and makes HTTP requests to each URL using the given headers and proxy.
+func makeRequests(filename string, headers []header, proxy *url.URL) error {
+	lines, err := parseFile(filename)
+	if err != nil {
+		return err
+	}
+
+	responses := make(chan []byte, len(lines))
+
+	// Start worker routines to make requests concurrently
+	for _, line := range lines {
+		go func(line string) {
+			statusCode, resp, err := request("", line, headers, proxy)
+			if err != nil {
+				log.Printf("Error making request to %s: %s", line, err)
+			} else {
+				log.Printf("%s returned status code %d", line, statusCode)
+				responses <- resp
+			}
+		}(line)
+	}
+
+	// Wait for all responses to be received
+	for i := 0; i < len(lines); i++ {
+		resp := <-responses
+		log.Printf("Received response: %s", resp)
+	}
+
+	return nil
+}
+
+func loadFlagsFromRequestFile(requestFile string, schema bool) {
+	// Read the content of the request file
+	content, err := ioutil.ReadFile(requestFile)
+	if err != nil {
+		log.Fatalf("Error reading request file: %v", err)
+	}
+	http_schema := "https://"
+
+	if schema != false {
+		http_schema = "http://"
+	}
+
+	// Split the request into lines
+	requestLines := strings.Split(string(content), "\n")
+	firstLine := requestLines[0]
+	headers := requestLines[1:]
+	host := strings.Split(requestLines[1], " ")
+
+	// Extract the HTTP method and URL from the first line of the request
+	parts := strings.Split(firstLine, " ")
+	uri := http_schema + host[1] + parts[1]
+
+	// Extract headers from the request and assign them to the req_headers slice
+	req_headers := []string{}
+	for _, h := range headers {
+		if len(h) > 0 {
+			req_headers = append(req_headers, h)
+		}
+	}
+
+	// Assign the extracted values to the corresponding flag variables
+	requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod)
 }

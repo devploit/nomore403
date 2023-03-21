@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/cheynewallace/tabby"
 	"github.com/fatih/color"
@@ -18,6 +19,7 @@ type Result struct {
 	contentLength int
 }
 
+// printResponse prints the results of HTTP requests in a tabular format with colored output based on the status codes.
 func printResponse(results []Result) {
 	t := tabby.New()
 
@@ -36,16 +38,16 @@ func printResponse(results []Result) {
 		t.AddLine(code, color.BlueString(strconv.Itoa(result.contentLength)+" bytes"), result.line)
 	}
 	t.Print()
-
 }
 
+// requestMethods makes HTTP requests using a list of methods from a file and prints the results.
 func requestMethods(uri string, headers []header, proxy *url.URL, folder string) {
 	color.Cyan("\n[####] HTTP METHODS [####]")
 
 	var lines []string
 	lines, err := parseFile(folder + "/httpmethods")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error reading /httpmethods file: %v", err)
 	}
 
 	w := goccm.New(max_goroutines)
@@ -69,13 +71,14 @@ func requestMethods(uri string, headers []header, proxy *url.URL, folder string)
 	printResponse(results)
 }
 
+// requestHeaders makes HTTP requests using a list of headers from a file and prints the results. It can also bypass IP address restrictions by specifying a bypass IP address.
 func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp string, folder string, method string) {
 	color.Cyan("\n[####] VERB TAMPERING [####]")
 
 	var lines []string
 	lines, err := parseFile(folder + "/headers")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error reading /headers file: %v", err)
 	}
 
 	var ips []string
@@ -84,13 +87,13 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 	} else {
 		ips, err = parseFile(folder + "/ips")
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("Error reading /ips file: %v", err)
 		}
 	}
 
 	simpleheaders, err := parseFile(folder + "/simpleheaders")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error reading /simpleheaders file: %v", err)
 	}
 
 	w := goccm.New(max_goroutines)
@@ -136,13 +139,14 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 	printResponse(results)
 }
 
+// requestEndPaths makes HTTP requests using a list of custom end paths from a file and prints the results.
 func requestEndPaths(uri string, headers []header, proxy *url.URL, folder string, method string) {
 	color.Cyan("\n[####] CUSTOM PATHS [####]")
 
 	var lines []string
 	lines, err := parseFile(folder + "/endpaths")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error reading custom paths file: %v", err)
 	}
 
 	w := goccm.New(max_goroutines)
@@ -166,11 +170,12 @@ func requestEndPaths(uri string, headers []header, proxy *url.URL, folder string
 	printResponse(results)
 }
 
+// requestMidPaths makes HTTP requests using a list of custom mid paths from a file and prints the results.
 func requestMidPaths(uri string, headers []header, proxy *url.URL, folder string, method string) {
 	var lines []string
 	lines, err := parseFile(folder + "/midpaths")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error reading custom paths file: %v", err)
 	}
 
 	x := strings.Split(uri, "/")
@@ -213,6 +218,7 @@ func requestMidPaths(uri string, headers []header, proxy *url.URL, folder string
 	printResponse(results)
 }
 
+// requestCapital makes HTTP requests by capitalizing each letter in the last part of the URI and prints the results.
 func requestCapital(uri string, headers []header, proxy *url.URL, method string) {
 	color.Cyan("\n[####] CAPITALIZATION [####]")
 
@@ -234,8 +240,14 @@ func requestCapital(uri string, headers []header, proxy *url.URL, method string)
 	for _, z := range uripath {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
-		go func(z string) {
-			newpath := strings.ReplaceAll(uripath, string(z), strings.ToUpper(string(z)))
+		go func(z rune) {
+			newpath := strings.Map(func(r rune) rune {
+				if r == z {
+					return unicode.ToUpper(r)
+				} else {
+					return r
+				}
+			}, uripath)
 
 			var fullpath string
 			if uri[len(uri)-1:] == "/" {
@@ -251,13 +263,15 @@ func requestCapital(uri string, headers []header, proxy *url.URL, method string)
 
 			results = append(results, Result{fullpath, statusCode, len(response)})
 			w.Done()
-		}(string(z))
+		}(z)
 	}
 	w.WaitAllDone()
 	printResponse(results)
 }
 
+// requester is the main function that runs all the tests.
 func requester(uri string, proxy string, userAgent string, req_headers []string, bypassIp string, folder string, method string) {
+	// Set up proxy if provided.
 	if len(proxy) != 0 {
 		if !strings.Contains(proxy, "http") {
 			proxy = "http://" + proxy
@@ -265,13 +279,17 @@ func requester(uri string, proxy string, userAgent string, req_headers []string,
 		color.Magenta("\n[*] USING PROXY: %s\n", proxy)
 	}
 	userProxy, _ := url.Parse(proxy)
+
+	// Check if URI has trailing slash, if not add it.
 	x := strings.Split(uri, "/")
 	if len(x) < 4 {
 		uri += "/"
 	}
+	// Set User-Agent header.
 	if len(userAgent) == 0 {
 		userAgent = "dontgo403"
 	}
+	// Set default request method to GET.
 	if len(method) == 0 {
 		method = "GET"
 	}
@@ -280,6 +298,7 @@ func requester(uri string, proxy string, userAgent string, req_headers []string,
 		{"User-Agent", userAgent},
 	}
 
+	// Parse custom headers from CLI arguments and add them to the headers slice.
 	if len(req_headers[0]) != 0 {
 		for _, _header := range req_headers {
 			header_split := strings.Split(_header, ":")
@@ -287,6 +306,7 @@ func requester(uri string, proxy string, userAgent string, req_headers []string,
 		}
 	}
 
+	// Call each function that will send HTTP requests with different variations of headers and URLs.
 	requestMethods(uri, headers, userProxy, folder)
 	requestHeaders(uri, headers, userProxy, bypassIp, folder, method)
 	requestEndPaths(uri, headers, userProxy, folder, method)

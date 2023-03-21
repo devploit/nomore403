@@ -22,6 +22,8 @@ var (
 	bypassIp       string
 	folder         string
 	httpMethod     string
+	requestFile    string
+	schema         bool
 )
 
 // rootCmd
@@ -34,6 +36,7 @@ var rootCmd = &cobra.Command{
 		if len(folder) == 0 {
 			folder = "payloads"
 		}
+
 		fi, _ := os.Stdin.Stat()
 		if (fi.Mode() & os.ModeCharDevice) == 0 {
 			bytes, _ := ioutil.ReadAll(os.Stdin)
@@ -48,11 +51,15 @@ var rootCmd = &cobra.Command{
 				requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod)
 			}
 		} else {
-			if len(uri) == 0 {
-				cmd.Help()
-				log.Fatal()
+			if len(requestFile) > 0 {
+				loadFlagsFromRequestFile(requestFile, schema)
+			} else {
+				if len(uri) == 0 {
+					cmd.Help()
+					log.Fatal()
+				}
+				requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod)
 			}
-			requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod)
 		}
 	},
 }
@@ -75,6 +82,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&bypassIp, "bypassIp", "b", "", "Try bypass tests with a specific IP address (or hostname). i.e.: 'X-Forwarded-For: 192.168.0.1' instead of 'X-Forwarded-For: 127.0.0.1'")
 	rootCmd.PersistentFlags().StringVarP(&folder, "folder", "f", "", "Define payloads folder (if it's not in the same path as binary)")
 	rootCmd.PersistentFlags().StringVarP(&httpMethod, "httpMethod", "t", "", "HTTP method to use (default 'GET')")
+	rootCmd.PersistentFlags().StringVarP(&requestFile, "request-file", "r", "", "Path to request file to load flags from")
+	rootCmd.PersistentFlags().BoolVarP(&schema, "http", "", false, "Set HTTP schema for request-file requests (default HTTPS)")
 }
 
 // initConfig reads in config file and ENV variables if set.
