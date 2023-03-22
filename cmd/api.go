@@ -124,6 +124,7 @@ func makeRequests(filename string, headers []header, proxy *url.URL) error {
 	return nil
 }
 
+// loadFlagsFromRequestFile parse an HTTP request and configure the necessary flags for an execution
 func loadFlagsFromRequestFile(requestFile string, schema bool) {
 	// Read the content of the request file
 	content, err := ioutil.ReadFile(requestFile)
