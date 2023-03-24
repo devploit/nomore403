@@ -93,37 +93,6 @@ func request(method, uri string, headers []header, proxy *url.URL) (int, []byte,
 	return res.StatusCode, resp, nil
 }
 
-// makeRequests reads the lines from the file at `filename` and makes HTTP requests to each URL using the given headers and proxy.
-func makeRequests(filename string, headers []header, proxy *url.URL) error {
-	lines, err := parseFile(filename)
-	if err != nil {
-		return err
-	}
-
-	responses := make(chan []byte, len(lines))
-
-	// Start worker routines to make requests concurrently
-	for _, line := range lines {
-		go func(line string) {
-			statusCode, resp, err := request("", line, headers, proxy)
-			if err != nil {
-				log.Printf("Error making request to %s: %s", line, err)
-			} else {
-				log.Printf("%s returned status code %d", line, statusCode)
-				responses <- resp
-			}
-		}(line)
-	}
-
-	// Wait for all responses to be received
-	for i := 0; i < len(lines); i++ {
-		resp := <-responses
-		log.Printf("Received response: %s", resp)
-	}
-
-	return nil
-}
-
 // loadFlagsFromRequestFile parse an HTTP request and configure the necessary flags for an execution
 func loadFlagsFromRequestFile(requestFile string, schema bool) {
 	// Read the content of the request file
