@@ -24,6 +24,7 @@ var (
 	httpMethod     string
 	requestFile    string
 	schema         bool
+	verbose        bool
 )
 
 // rootCmd
@@ -48,17 +49,17 @@ var rootCmd = &cobra.Command{
 				if uri == lastchar {
 					break
 				}
-				requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod)
+				requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod, verbose)
 			}
 		} else {
 			if len(requestFile) > 0 {
-				loadFlagsFromRequestFile(requestFile, schema)
+				loadFlagsFromRequestFile(requestFile, schema, verbose)
 			} else {
 				if len(uri) == 0 {
 					cmd.Help()
 					log.Fatal()
 				}
-				requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod)
+				requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod, verbose)
 			}
 		}
 	},
@@ -84,6 +85,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&httpMethod, "httpMethod", "t", "", "HTTP method to use (default 'GET')")
 	rootCmd.PersistentFlags().StringVarP(&requestFile, "request-file", "r", "", "Path to request file to load flags from")
 	rootCmd.PersistentFlags().BoolVarP(&schema, "http", "", false, "Set HTTP schema for request-file requests (default HTTPS)")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Set verbose mode ON (default OFF)")
 }
 
 // initConfig reads in config file and ENV variables if set.

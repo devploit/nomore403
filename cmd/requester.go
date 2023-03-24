@@ -19,6 +19,10 @@ type Result struct {
 	contentLength int
 }
 
+var _verbose bool
+var default_sc int
+var default_cl int
+
 // printResponse prints the results of HTTP requests in a tabular format with colored output based on the status codes.
 func printResponse(results []Result) {
 	t := tabby.New()
@@ -35,9 +39,38 @@ func printResponse(results []Result) {
 		case 500, 501, 502, 503, 504, 505, 511:
 			code = color.MagentaString(strconv.Itoa(result.statusCode))
 		}
-		t.AddLine(code, color.BlueString(strconv.Itoa(result.contentLength)+" bytes"), result.line)
+		if _verbose != true {
+			if default_sc == result.statusCode {
+				continue
+			} else {
+				t.AddLine(code, color.BlueString(strconv.Itoa(result.contentLength)+" bytes"), result.line)
+			}
+		} else {
+			t.AddLine(code, color.BlueString(strconv.Itoa(result.contentLength)+" bytes"), result.line)
+		}
+
 	}
 	t.Print()
+
+}
+
+// requestDefault makes HTTP request to check the default response
+func requestDefault(uri string, headers []header, proxy *url.URL, method string) {
+	color.Cyan("\n[####] DEFAULT REQUEST [####]")
+
+	results := []Result{}
+
+	statusCode, response, err := request(method, uri, headers, proxy)
+	if err != nil {
+		log.Println(err)
+	}
+
+	results = append(results, Result{method, statusCode, len(response)})
+	printResponse(results)
+	for _, result := range results {
+		default_sc = result.statusCode
+		default_cl = result.contentLength
+	}
 }
 
 // requestMethods makes HTTP requests using a list of methods from a file and prints the results.
@@ -270,7 +303,7 @@ func requestCapital(uri string, headers []header, proxy *url.URL, method string)
 }
 
 // requester is the main function that runs all the tests.
-func requester(uri string, proxy string, userAgent string, req_headers []string, bypassIp string, folder string, method string) {
+func requester(uri string, proxy string, userAgent string, req_headers []string, bypassIp string, folder string, method string, verbose bool) {
 	// Set up proxy if provided.
 	if len(proxy) != 0 {
 		if !strings.Contains(proxy, "http") {
@@ -306,7 +339,10 @@ func requester(uri string, proxy string, userAgent string, req_headers []string,
 		}
 	}
 
+	_verbose = verbose
+
 	// Call each function that will send HTTP requests with different variations of headers and URLs.
+	requestDefault(uri, headers, userProxy, method)
 	requestMethods(uri, headers, userProxy, folder)
 	requestHeaders(uri, headers, userProxy, bypassIp, folder, method)
 	requestEndPaths(uri, headers, userProxy, folder, method)

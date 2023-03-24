@@ -94,7 +94,7 @@ func request(method, uri string, headers []header, proxy *url.URL) (int, []byte,
 }
 
 // loadFlagsFromRequestFile parse an HTTP request and configure the necessary flags for an execution
-func loadFlagsFromRequestFile(requestFile string, schema bool) {
+func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool) {
 	// Read the content of the request file
 	content, err := ioutil.ReadFile(requestFile)
 	if err != nil {
@@ -125,5 +125,5 @@ func loadFlagsFromRequestFile(requestFile string, schema bool) {
 	}
 
 	// Assign the extracted values to the corresponding flag variables
-	requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod)
+	requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod, verbose)
 }

@@ -41,6 +41,7 @@ Flags:
   -r, --request-file string   Path to request file to load flags from
   -u, --uri string            Target URL
   -a, --useragent string      Set the User-Agent string (default 'dontgo403')
+  -v, --verbose               Set verbose mode ON (default OFF)
 ```
 
 
