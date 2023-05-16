@@ -15,5 +15,8 @@
 # Test requests files
 request.txt
 
+# Security Notes
+.security-notes.json
+
 # Built binary
 dontgo403
