@@ -45,8 +45,31 @@ Flags:
 ```
 
 
-### Example of usage
-[![asciicast](https://asciinema.org/a/xtD6Zcx2fZj5JgRdXEUi4rdqJ.svg)](https://asciinema.org/a/xtD6Zcx2fZj5JgRdXEUi4rdqJ)
+### Usage
+Basic usage:
+```bash
+./dontgo403 -u https://domain.com/admin
+```
+
+Verbose mode + proxy enabled:
+```bash
+./dontgo403 -u https://domain.com/admin -p http://127.0.0.1:8080 -v
+```
+
+Parse request from Burp:
+```bash
+./dontgo403 -r request.txt
+```
+
+Use custom header + specific IP address for bypasses:
+```bash
+./dontgo403 -u https://domain.com/admin -H "Environment: Staging" -b 8.8.8.8
+```
+
+Set new max of goroutines + add delay between requests:
+```bash
+./dontgo403 -u https://domain.com/admin -m 10 -d 200
+```
 
 
 ### Contact
