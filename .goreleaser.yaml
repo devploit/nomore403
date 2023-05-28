@@ -13,7 +13,7 @@ builds:
       - -s -w -X main.Version={{.Version}} -X main.BuildDate={{.CommitDate}}
     ignore:
       - goos: darwin
-        goarch: i386
+        goarch: 386
       - goos: windows
         goarch: arm64
 

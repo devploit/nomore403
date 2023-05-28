@@ -3,7 +3,6 @@ package cmd
 import (
 	"bufio"
 	"crypto/tls"
-	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -21,14 +20,9 @@ func parseFile(filename string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			log.Fatalf("{#err}")
-		}
-	}(file)
+	defer file.Close()
 
-	var lines []string
+	lines := []string{}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
@@ -89,12 +83,7 @@ func request(method, uri string, headers []header, proxy *url.URL) (int, []byte,
 	if err != nil {
 		return 0, nil, err
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			log.Fatalf("{#err}")
-		}
-	}(res.Body)
+	defer res.Body.Close()
 
 	resp, err := httputil.DumpResponse(res, true)
 	if err != nil {
@@ -111,10 +100,10 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool) {
 	if err != nil {
 		log.Fatalf("Error reading request file: %v", err)
 	}
-	httpSchema := "https://"
+	http_schema := "https://"
 
 	if schema != false {
-		httpSchema = "http://"
+		http_schema = "http://"
 	}
 
 	// Split the request into lines
@@ -125,16 +114,16 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool) {
 
 	// Extract the HTTP method and URL from the first line of the request
 	parts := strings.Split(firstLine, " ")
-	uri := httpSchema + host[1] + parts[1]
+	uri := http_schema + host[1] + parts[1]
 
 	// Extract headers from the request and assign them to the req_headers slice
-	var reqHeaders []string
+	req_headers := []string{}
 	for _, h := range headers {
 		if len(h) > 0 {
-			reqHeaders = append(reqHeaders, h)
+			req_headers = append(req_headers, h)
 		}
 	}
 
 	// Assign the extracted values to the corresponding flag variables
-	requester(uri, proxy, useragent, reqHeaders, bypassIp, folder, httpMethod, verbose, nobanner)
+	requester(uri, proxy, useragent, req_headers, bypassIp, folder, httpMethod, verbose)
 }
