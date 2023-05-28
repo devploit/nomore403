@@ -29,14 +29,15 @@ Usage:
   dontgo403 [flags]
 
 Flags:
-  -b, --bypassIp string       Try bypass tests with a specific IP address (or hostname). i.e.: 'X-Forwarded-For: 192.168.0.1' instead of 'X-Forwarded-For: 127.0.0.1'
-  -d, --delay int             Set a delay (in ms) between each request. Default: 0ms
+  -i, --bypassIp string       Try bypass tests with a specific IP address (or hostname). i.e.: 'X-Forwarded-For: 192.168.0.1' instead of 'X-Forwarded-For: 127.0.0.1'
+  -d, --delay int             Set a delay (in ms) between each request (default 0ms)
   -f, --folder string         Define payloads folder (if it's not in the same path as binary)
   -H, --header strings        Add a custom header to the requests (can be specified multiple times)
   -h, --help                  help for dontgo403
       --http                  Set HTTP schema for request-file requests (default HTTPS)
   -t, --httpMethod string     HTTP method to use (default 'GET')
-  -m, --max_goroutines int    Set the max number of goroutines working at same time. Default: 50 (default 50)
+  -m, --max_goroutines int    Set the max number of goroutines working at same time (default 50)
+      --nobanner              Set nobanner ON (default OFF)
   -p, --proxy string          Proxy URL. For example: http://127.0.0.1:8080
   -r, --request-file string   Path to request file to load flags from
   -u, --uri string            Target URL
@@ -46,6 +47,45 @@ Flags:
 
 
 ### Usage
+Output example:
+```bash
+
+                                                                                       .#%%:  -#%%%*.  +#%%#+.
+                                                                                      =@*#@: =@+  .%%.:+-  =@*
+         :::.                             ...                                       .#@= *@: *@:   *@:  :##%@-
+         :::.                             :::.             ..    -:..-.    ..   ::  =%%%%@@%:=@*. :%% =*-  :@%
+ .::::::::::.   .::::::.   .:::::::::.  ::::::::.  .:::::::::.  .=::..:==-=+++:.         +#.  -*#%#+.  =*###+.
+.:::....::::. .:::....:::. .::::...:::. ..::::..  ::::....:::   --::..-=+*=:.
+:::.     :::. :::.    .::: .:::    .:::   :::.   ::::     .:::  -=::-*#+=:
+::::    .:::. ::::    :::: .:::    .:::   :::.   .:::.    :::.  +-:::=::.
+ :::::.:::::.  ::::..::::  .:::    .:::   .:::.:. .:::::::::.  .+=:::::.
+  ..::::.:::    ..::::..   .:::     :::    ..:::.   .....::::.   -=:.::
+                                                 .:::     ::::
+                                                  :::::..::::.
+	
+Target: 		        https://domain.com/admin
+Headers: 		        false
+User Agent: 		        dontgo403
+Proxy: 			        false
+Method: 		        GET
+Payloads folder:                payloads
+Custom bypass IP:               false
+Verbose: 		        false
+
+━━━━━━━━━━━━━ DEFAULT REQUEST ━━━━━━━━━━━━━
+403 	  429 bytes https://domain.com/admin
+
+━━━━━━━━━━━━━ VERB TAMPERING ━━━━━━━━━━━━━━
+
+━━━━━━━━━━━━━ HEADERS ━━━━━━━━━━━━━━━━━━━━━
+
+━━━━━━━━━━━━━ CUSTOM PATHS ━━━━━━━━━━━━━━━━
+200 	 2047 bytes https://domain.com/;///..admin
+
+━━━━━━━━━━━━━ CASE SWITCHING ━━━━━━━━━━━━━━
+200 	 2047 bytes https://domain.com/%61dmin
+```
+
 Basic usage:
 ```bash
 ./dontgo403 -u https://domain.com/admin
@@ -70,7 +110,6 @@ Set new max of goroutines + add delay between requests:
 ```bash
 ./dontgo403 -u https://domain.com/admin -m 10 -d 200
 ```
-
 
 ### Contact
 [![Twitter: devploit](https://img.shields.io/badge/-Twitter-blue?style=flat-square&logo=Twitter&logoColor=white&link=https://twitter.com/devploit/)](https://twitter.com/devploit/)
