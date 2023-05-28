@@ -20,3 +20,6 @@ request.txt
 
 # Built binary
 dontgo403
+
+# Idea
+.idea/*
