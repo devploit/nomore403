@@ -23,6 +23,7 @@ type Result struct {
 
 var _verbose bool
 var defaultSc int
+var defaultCl int
 var printMutex = &sync.Mutex{}
 
 // printResponse prints the results of HTTP requests in a tabular format with colored output based on the status codes.
@@ -44,7 +45,7 @@ func printResponse(result Result) {
 		code = color.MagentaString(strconv.Itoa(result.statusCode))
 	}
 	if _verbose != true {
-		if (defaultSc == result.statusCode || result.contentLength == 0 || result.statusCode == 404 || result.statusCode == 400) && result.defaultReq != true {
+		if ((defaultSc == result.statusCode) && (defaultCl == result.contentLength) || result.contentLength == 0 || result.statusCode == 404 || result.statusCode == 400) && result.defaultReq != true {
 			return
 		} else {
 			fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
@@ -110,6 +111,7 @@ func requestDefault(uri string, headers []header, proxy *url.URL, method string)
 	printResponse(Result{uri, statusCode, len(response), true})
 	for _, result := range results {
 		defaultSc = result.statusCode
+		defaultCl = result.contentLength
 	}
 }
 
