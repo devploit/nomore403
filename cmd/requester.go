@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -289,16 +290,18 @@ func requestMidPaths(uri string, headers []header, proxy *url.URL, folder string
 func requestCaseSwitching(uri string, headers []header, proxy *url.URL, method string) {
 	color.Cyan("\n━━━━━━━━━━━━━ CASE SWITCHING ━━━━━━━━━━━━━━")
 
-	x := strings.Split(uri, "/")
-	var uripath string
-
-	if uri[len(uri)-1:] == "/" {
-		uripath = x[len(x)-2]
-	} else {
-		uripath = x[len(x)-1]
+	parsedURL, err := url.Parse(uri)
+	if err != nil {
+		log.Println(err)
+		return
 	}
-	baseuri := strings.ReplaceAll(uri, uripath, "")
-	baseuri = baseuri[:len(baseuri)-1]
+
+	baseuri := parsedURL.Scheme + "://" + parsedURL.Host
+	uripath := strings.Trim(parsedURL.Path, "/")
+
+	if len(uripath) == 0 {
+		os.Exit(0)
+	}
 
 	w := goccm.New(maxGoroutines)
 
