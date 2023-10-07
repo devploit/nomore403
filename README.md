@@ -80,6 +80,11 @@ Verbose: 		        false
 ━━━━━━━━━━━━━ CUSTOM PATHS ━━━━━━━━━━━━━━━━
 200 	 2047 bytes https://domain.com/;///..admin
 
+━━━━━━━━━━━━━ HTTP VERSIONS ━━━━━━━━━━━━━━━
+302    2047 bytes HTTP/1.0
+302    2047 bytes HTTP/1.1
+302    2047 bytes HTTP/2
+
 ━━━━━━━━━━━━━ CASE SWITCHING ━━━━━━━━━━━━━━
 200 	 2047 bytes https://domain.com/%61dmin
 ```

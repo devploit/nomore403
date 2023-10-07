@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -184,7 +185,7 @@ func requestHeaders(uri string, headers []header, proxy *url.URL, bypassIp strin
 					log.Println(err)
 				}
 
-				printResponse(Result{line, statusCode, len(response), false})
+				printResponse(Result{line + ": " + ip, statusCode, len(response), false})
 				w.Done()
 			}(line, ip)
 		}
@@ -284,6 +285,61 @@ func requestMidPaths(uri string, headers []header, proxy *url.URL, folder string
 		}
 		w.WaitAllDone()
 	}
+}
+
+// requestHttpVersions makes HTTP requests using a list of HTTP versions from a file and prints the results. If server responds with an unique version it is because is not accepting the version provided.
+func requestHttpVersions(uri string, headers []header, proxy *url.URL, method string) {
+	color.Cyan("\n━━━━━━━━━━━━━ HTTP VERSIONS ━━━━━━━━━━━━━━━")
+
+	httpVersions := []string{"--http1.0", "--http1.1", "--http2"}
+
+	for _, version := range httpVersions {
+		headerStrings := make([]string, len(headers))
+		for i, h := range headers {
+			headerStrings[i] = h.key + ": " + h.value
+		}
+		res := curlRequest(uri, headerStrings, proxy.Host, version)
+		printResponse(res)
+	}
+
+}
+
+func curlRequest(url string, headers []string, proxy string, httpVersion string) Result {
+	args := []string{"-i", "-s", httpVersion}
+	for _, header := range headers {
+		args = append(args, "-H", header)
+	}
+	if proxy != "" {
+		args = append(args, "-x", proxy)
+	}
+	args = append(args, url)
+
+	out, err := exec.Command("curl", args...).Output()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return parseCurlOutput(string(out), httpVersion)
+}
+
+func parseCurlOutput(output string, httpVersion string) Result {
+	httpVersionOutput := strings.ReplaceAll(httpVersion, "--http", "HTTP/")
+
+	// Split by two line breaks to separate proxy and server responses
+	responses := strings.Split(output, "\r\n\r\n")
+
+	// If there is more than one answer, take the last one, which is the one from the server
+	serverResponse := responses[len(responses)-2]
+
+	lines := strings.SplitN(serverResponse, "\n", 2)
+	parts := strings.SplitN(lines[0], " ", 3)
+
+	statusCode, err := strconv.Atoi(parts[1])
+	if err != nil {
+		log.Println(err)
+		return Result{}
+	}
+	return Result{httpVersionOutput, statusCode, len(output), false}
 }
 
 // requestCaseSwitching makes HTTP requests by capitalizing each letter in the last part of the URI and try to use URL encoded characters.
@@ -406,5 +462,6 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 	requestHeaders(uri, headers, userProxy, bypassIp, folder, method)
 	requestEndPaths(uri, headers, userProxy, folder, method)
 	requestMidPaths(uri, headers, userProxy, folder, method)
+	requestHttpVersions(uri, headers, userProxy, method)
 	requestCaseSwitching(uri, headers, userProxy, method)
 }
