@@ -81,9 +81,9 @@ Verbose: 		        false
 200 	 2047 bytes https://domain.com/;///..admin
 
 ━━━━━━━━━━━━━ HTTP VERSIONS ━━━━━━━━━━━━━━━
-200    2047 bytes HTTP/1.0
-200    2047 bytes HTTP/1.1
-200    2047 bytes HTTP/2
+200      2047 bytes HTTP/1.0
+200      2047 bytes HTTP/1.1
+200      2047 bytes HTTP/2
 
 ━━━━━━━━━━━━━ CASE SWITCHING ━━━━━━━━━━━━━━
 200 	 2047 bytes https://domain.com/%61dmin
