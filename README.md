@@ -118,23 +118,23 @@ Usage:
   nomore403 [flags]
 
 Flags:
-  -i, --bypass-ip string      Try bypass tests with a specific IP address (or hostname). For example: 'X-Forwarded-For: 192.168.0.1' instead of 'X-Forwarded-For: 127.0.0.1'
-  -d, --delay int             Set a delay (in ms) between each request (default 0ms)
-  -f, --folder string         Define payloads folder (if its not in the same path as binary)
-  -H, --header strings        Add a custom header to the requests (can be specified multiple times)
+  -i, --bypass-ip string      Use a specified IP address or hostname for bypassing access controls. Injects this IP in headers like 'X-Forwarded-For'.
+  -d, --delay int             Specify a delay between requests in milliseconds. Helps manage request rate (default: 0ms).
+  -f, --folder string         Specify the folder location for payloads if not in the same directory as the executable.
+  -H, --header strings        Add one or more custom headers to requests. Repeatable flag for multiple headers.
   -h, --help                  help for nomore403
-      --http                  Set HTTP schema for request-file requests (default HTTPS)
-  -t, --http-method string    HTTP method to use (default 'GET')
-  -m, --max-goroutines int    Set the max number of goroutines working at same time (default 50)
-      --no-banner             Set no-banner ON (default OFF)
-  -x, --proxy string          Proxy URL. For example: http://127.0.0.1:8080
-      --random-agent          Set random user-agent ON (default OFF)
-  -l, --rate-limit            Stop making request if rate limit ban is detected: 429 HTTP code (default OFF)
-  -r, --redirect              Set follow redirect ON (default OFF)
-      --request-file string   Path to request file to load flags from
-  -u, --uri string            Target URL
-  -a, --user-agent string     Set the User-Agent string (default 'nomore403')
-  -v, --verbose               Set verbose mode ON (default OFF)
+      --http                  Use HTTP instead of HTTPS for requests defined in the request file.
+  -t, --http-method string    Specify the HTTP method for the request (e.g., GET, POST). Default is 'GET'.
+  -m, --max-goroutines int    Limit the maximum number of concurrent goroutines to manage load (default: 50). (default 50)
+      --no-banner             Disable the display of the startup banner (default: banner shown).
+  -x, --proxy string          Specify a proxy server for requests, e.g., 'http://server:port'.
+      --random-agent          Enable the use of a randomly selected User-Agent.
+  -l, --rate-limit            Halt requests upon encountering a 429 (rate limit) HTTP status code.
+  -r, --redirect              Automatically follow redirects in responses.
+      --request-file string   Load request configuration and flags from a specified file.
+  -u, --uri string            Specify the target URL for the request.
+  -a, --user-agent string     pecify a custom User-Agent string for requests (default: 'nomore403').
+  -v, --verbose               Enable verbose output for detailed request/response logging.
 ```
 
 ## Contributing
