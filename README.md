@@ -49,7 +49,7 @@ To edit or add new bypasses, modify the payloads directly in the [payloads](http
  ╱         ╱         ╱         ╱         ╱        _╱       __/____     ╱         ╱         ╱
  ╲__╱_____╱╲________╱╲__╱__╱__╱╲________╱╲____╱___╱╲________╱    ╱____╱╲________╱╲________╱  
 
-Target: 		        https://domain.com/admin
+Target: 		https://domain.com/admin
 Headers:                false
 Proxy:                  false
 User Agent:             Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.2; WOW64; Trident/7.0; 1ButtonTaskbar)
