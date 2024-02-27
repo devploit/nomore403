@@ -1,4 +1,4 @@
-name: Release dontgo403 binary
+name: Release nomore403 binary
 
 on:
   push:

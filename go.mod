@@ -1,4 +1,4 @@
-module dontgo403
+module nomore403
 
 go 1.19
 

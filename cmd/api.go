@@ -49,7 +49,7 @@ type header struct {
 // request makes an HTTP request using headers `headers` and proxy `proxy`.
 //
 // If `method` is empty, it defaults to "GET".
-func request(method, uri string, headers []header, proxy *url.URL) (int, []byte, error) {
+func request(method, uri string, headers []header, proxy *url.URL, rateLimit bool, redirect bool) (int, []byte, error) {
 	if method == "" {
 		method = "GET"
 	}
@@ -73,6 +73,12 @@ func request(method, uri string, headers []header, proxy *url.URL) (int, []byte,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
 		},
+	}
+
+	if !redirect {
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
 	}
 
 	req, err := http.NewRequest(method, uri, nil)
@@ -101,11 +107,15 @@ func request(method, uri string, headers []header, proxy *url.URL) (int, []byte,
 		return 0, nil, err
 	}
 
+	if rateLimit && res.StatusCode == 429 {
+		log.Fatalf("Rate limit detected (HTTP 429). Exiting...")
+	}
+
 	return res.StatusCode, resp, nil
 }
 
 // loadFlagsFromRequestFile parse an HTTP request and configure the necessary flags for an execution
-func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool) {
+func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, redirect bool) {
 	// Read the content of the request file
 	content, err := ioutil.ReadFile(requestFile)
 	if err != nil {
@@ -113,7 +123,7 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool) {
 	}
 	httpSchema := "https://"
 
-	if schema != false {
+	if schema {
 		httpSchema = "http://"
 	}
 
@@ -136,5 +146,5 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool) {
 	}
 
 	// Assign the extracted values to the corresponding flag variables
-	requester(uri, proxy, useragent, reqHeaders, bypassIp, folder, httpMethod, verbose, nobanner)
+	requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, nobanner, rateLimit, redirect, randomAgent)
 }

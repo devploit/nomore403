@@ -19,7 +19,7 @@ request.txt
 .security-notes.json
 
 # Built binary
-dontgo403
+nomore403
 
 # Idea
 .idea/*
