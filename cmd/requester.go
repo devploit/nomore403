@@ -484,7 +484,7 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 			userAgent = "nomore403"
 		}
 	} else {
-		line, err := randomLine(folder + "/userAgents")
+		line, err := randomLine(folder + "/useragents")
 		if err != nil {
 			fmt.Println("Error al leer el archivo:", err)
 			return
