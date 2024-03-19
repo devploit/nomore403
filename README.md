@@ -132,7 +132,7 @@ Flags:
   -l, --rate-limit            Halt requests upon encountering a 429 (rate limit) HTTP status code.
   -r, --redirect              Automatically follow redirects in responses.
       --request-file string   Load request configuration and flags from a specified file.
-      --timeout int           Specify a max timeout time (default: 6000ms). (default 6000)
+      --timeout int           Specify a max timeout time in ms (default 6000)
   -u, --uri string            Specify the target URL for the request.
   -a, --user-agent string     pecify a custom User-Agent string for requests (default: 'nomore403').
   -v, --verbose               Enable verbose output for detailed request/response logging.
