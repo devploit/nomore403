@@ -22,6 +22,7 @@ var (
 	proxy         string
 	randomAgent   bool
 	rateLimit     bool
+	timeout       int
 	redirect      bool
 	reqHeaders    []string
 	requestFile   string
@@ -53,7 +54,7 @@ var rootCmd = &cobra.Command{
 				if uri == lastchar {
 					break
 				}
-				requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, nobanner, rateLimit, redirect, randomAgent)
+				requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, nobanner, rateLimit, timeout, redirect, randomAgent)
 			}
 		} else {
 			if len(requestFile) > 0 {
@@ -66,7 +67,7 @@ var rootCmd = &cobra.Command{
 					}
 					log.Fatal()
 				}
-				requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, nobanner, rateLimit, redirect, randomAgent)
+				requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, nobanner, rateLimit, timeout, redirect, randomAgent)
 			}
 		}
 	},
@@ -94,6 +95,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&rateLimit, "rate-limit", "l", false, "Halt requests upon encountering a 429 (rate limit) HTTP status code.")
 	rootCmd.PersistentFlags().BoolVarP(&redirect, "redirect", "r", false, "Automatically follow redirects in responses.")
 	rootCmd.PersistentFlags().StringVarP(&requestFile, "request-file", "", "", "Load request configuration and flags from a specified file.")
+	rootCmd.PersistentFlags().IntVarP(&timeout, "timeout", "", 6000, "Specify a max timeout time (default: 6000ms).")
 	rootCmd.PersistentFlags().StringVarP(&uri, "uri", "u", "", "Specify the target URL for the request.")
 	rootCmd.PersistentFlags().StringVarP(&userAgent, "user-agent", "a", "", "pecify a custom User-Agent string for requests (default: 'nomore403').")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for detailed request/response logging.")

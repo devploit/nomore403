@@ -49,7 +49,7 @@ type header struct {
 // request makes an HTTP request using headers `headers` and proxy `proxy`.
 //
 // If `method` is empty, it defaults to "GET".
-func request(method, uri string, headers []header, proxy *url.URL, rateLimit bool, redirect bool) (int, []byte, error) {
+func request(method, uri string, headers []header, proxy *url.URL, rateLimit bool, timeout int, redirect bool) (int, []byte, error) {
 	if method == "" {
 		method = "GET"
 	}
@@ -65,7 +65,7 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 				InsecureSkipVerify: true,
 			},
 			DialContext: (&net.Dialer{
-				Timeout:   6 * time.Second,
+				Timeout:   time.Duration(timeout) / 1000 * time.Second,
 				KeepAlive: 30 * time.Second,
 			}).DialContext,
 			MaxIdleConns:          100,
@@ -83,7 +83,7 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 
 	req, err := http.NewRequest(method, uri, nil)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil
 	}
 	req.Close = true
 
@@ -146,5 +146,5 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, red
 	}
 
 	// Assign the extracted values to the corresponding flag variables
-	requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, nobanner, rateLimit, redirect, randomAgent)
+	requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, nobanner, rateLimit, timeout, redirect, randomAgent)
 }

@@ -34,6 +34,7 @@ type RequestOptions struct {
 	redirect   bool
 	folder     string
 	bypassIP   string
+	timeout    int
 	rateLimit  bool
 	verbose    bool
 	reqHeaders []string
@@ -107,16 +108,63 @@ func showInfo(options RequestOptions) {
 	}
 	fmt.Printf("%s \t%s\n", "Follow Redirects:", strconv.FormatBool(options.redirect))
 	fmt.Printf("%s \t%s\n", "Rate Limit detection:", strconv.FormatBool(options.rateLimit))
+	fmt.Printf("%s \t\t%d\n", "Timeout (ms):", options.timeout)
+	fmt.Printf("%s \t\t%d\n", "Delay (ms):", delay)
 	fmt.Printf("%s \t\t%t\n", "Verbose:", options.verbose)
+}
+
+// generateCaseCombinations generates all combinations of uppercase and lowercase letters for a given string.
+func generateCaseCombinations(s string) []string {
+	if len(s) == 0 {
+		return []string{""}
+	}
+
+	firstCharCombinations := []string{string(unicode.ToLower(rune(s[0]))), string(unicode.ToUpper(rune(s[0])))}
+	subCombinations := generateCaseCombinations(s[1:])
+	combinations := []string{}
+
+	for _, char := range firstCharCombinations {
+		for _, comb := range subCombinations {
+			combinations = append(combinations, char+comb)
+		}
+	}
+
+	return combinations
+}
+
+// filterOriginalMethod extract the original method from the list of combinations
+func filterOriginalMethod(originalMethod string, combinations []string) []string {
+	filtered := make([]string, 0, len(combinations))
+	for _, combination := range combinations {
+		if combination != originalMethod {
+			filtered = append(filtered, combination)
+		}
+	}
+	return filtered
+}
+
+// selectRandomCombinations selects up to n random combinations from a list of combinations.
+func selectRandomCombinations(combinations []string, n int) []string {
+	rand.Seed(time.Now().UnixNano())
+
+	if len(combinations) <= n {
+		return combinations
+	}
+
+	rand.Shuffle(len(combinations), func(i, j int) {
+		combinations[i], combinations[j] = combinations[j], combinations[i]
+	})
+
+	return combinations[:n]
 }
 
 // requestDefault makes HTTP request to check the default response
 func requestDefault(options RequestOptions) {
-	color.Cyan("\n━━━━━━━━━━━━━ DEFAULT REQUEST ━━━━━━━━━━━━━")
+	color.Cyan("\n━━━━━━━━━━━━━━━ DEFAULT REQUEST ━━━━━━━━━━━━━━")
 
 	var results []Result
 
-	statusCode, response, err := request(options.method, options.uri, options.headers, options.proxy, options.rateLimit, options.redirect)
+	statusCode, response, err := request(options.method, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 	if err != nil {
 		log.Println(err)
 	}
@@ -131,7 +179,7 @@ func requestDefault(options RequestOptions) {
 
 // requestMethods makes HTTP requests using a list of methods from a file and prints the results.
 func requestMethods(options RequestOptions) {
-	color.Cyan("\n━━━━━━━━━━━━━ VERB TAMPERING ━━━━━━━━━━━━━━")
+	color.Cyan("\n━━━━━━━━━━━━━━━ VERB TAMPERING ━━━━━━━━━━━━━━━")
 
 	var lines []string
 	lines, err := parseFile(folder + "/httpmethods")
@@ -145,7 +193,7 @@ func requestMethods(options RequestOptions) {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
 		go func(line string) {
-			statusCode, response, err := request(line, options.uri, options.headers, options.proxy, options.rateLimit, options.redirect)
+			statusCode, response, err := request(line, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				log.Println(err)
 			}
@@ -157,9 +205,41 @@ func requestMethods(options RequestOptions) {
 	w.WaitAllDone()
 }
 
+// requestMethodsCaseSwitching makes HTTP requests using a list of methods from a file and prints the results.
+func requestMethodsCaseSwitching(options RequestOptions) {
+	color.Cyan("\n━━━━━━━ VERB TAMPERING CASE SWITCHING ━━━━━━━━")
+
+	var lines []string
+	lines, err := parseFile(folder + "/httpmethods")
+	if err != nil {
+		log.Fatalf("Error reading /httpmethods file: %v", err)
+	}
+
+	w := goccm.New(maxGoroutines)
+
+	for _, line := range lines {
+		methodCombinations := generateCaseCombinations(line)
+		filteredCombinations := filterOriginalMethod(line, methodCombinations)
+		selectedCombinations := selectRandomCombinations(filteredCombinations, 50)
+		for _, method := range selectedCombinations {
+			time.Sleep(time.Duration(delay) * time.Millisecond)
+			w.Wait()
+			go func(method string) {
+				statusCode, response, err := request(method, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+				if err != nil {
+					log.Println(err)
+				}
+				printResponse(Result{method, statusCode, len(response), false})
+				w.Done()
+			}(method)
+		}
+	}
+	w.WaitAllDone()
+}
+
 // requestHeaders makes HTTP requests using a list of headers from a file and prints the results. It can also bypass IP address restrictions by specifying a bypass IP address.
 func requestHeaders(options RequestOptions) {
-	color.Cyan("\n━━━━━━━━━━━━━ HEADERS ━━━━━━━━━━━━━━━━━━━━━")
+	color.Cyan("\n━━━━━━━━━━━━━━━━━━ HEADERS ━━━━━━━━━━━━━━━━━━━")
 
 	var lines []string
 	lines, err := parseFile(folder + "/headers")
@@ -191,7 +271,7 @@ func requestHeaders(options RequestOptions) {
 			go func(line, ip string) {
 				headers := append(options.headers, header{line, ip})
 
-				statusCode, response, err := request(options.method, options.uri, headers, options.proxy, options.rateLimit, redirect)
+				statusCode, response, err := request(options.method, options.uri, headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 
 				if err != nil {
 					log.Println(err)
@@ -210,7 +290,7 @@ func requestHeaders(options RequestOptions) {
 			x := strings.Split(line, " ")
 			headers := append(options.headers, header{x[0], x[1]})
 
-			statusCode, response, err := request(options.method, options.uri, headers, options.proxy, rateLimit, redirect)
+			statusCode, response, err := request(options.method, options.uri, headers, options.proxy, rateLimit, options.timeout, redirect)
 			if err != nil {
 				log.Println(err)
 			}
@@ -224,7 +304,7 @@ func requestHeaders(options RequestOptions) {
 
 // requestEndPaths makes HTTP requests using a list of custom end paths from a file and prints the results.
 func requestEndPaths(options RequestOptions) {
-	color.Cyan("\n━━━━━━━━━━━━━ CUSTOM PATHS ━━━━━━━━━━━━━━━━")
+	color.Cyan("\n━━━━━━━━━━━━━━━ CUSTOM PATHS ━━━━━━━━━━━━━━━━━")
 
 	var lines []string
 	lines, err := parseFile(folder + "/endpaths")
@@ -238,7 +318,7 @@ func requestEndPaths(options RequestOptions) {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
 		go func(line string) {
-			statusCode, response, err := request(options.method, options.uri+line, options.headers, options.proxy, options.rateLimit, options.redirect)
+			statusCode, response, err := request(options.method, options.uri+line, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				log.Println(err)
 			}
@@ -289,7 +369,7 @@ func requestMidPaths(options RequestOptions) {
 					fullpath = baseuri + "/" + line + uripath
 				}
 
-				statusCode, response, err := request(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.redirect)
+				statusCode, response, err := request(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 				if err != nil {
 					log.Println(err)
 				}
@@ -304,7 +384,7 @@ func requestMidPaths(options RequestOptions) {
 
 // requestHttpVersions makes HTTP requests using a list of HTTP versions from a file and prints the results. If server responds with an unique version it is because is not accepting the version provided.
 func requestHttpVersions(options RequestOptions) {
-	color.Cyan("\n━━━━━━━━━━━━━ HTTP VERSIONS ━━━━━━━━━━━━━━━")
+	color.Cyan("\n━━━━━━━━━━━━━━━ HTTP VERSIONS ━━━━━━━━━━━━━━━━")
 
 	httpVersions := []string{"--http1.0", "--http1.1", "--http2"}
 
@@ -361,9 +441,9 @@ func parseCurlOutput(output string, httpVersion string) Result {
 	return Result{httpVersionOutput, statusCode, len(output), false}
 }
 
-// requestCaseSwitching makes HTTP requests by capitalizing each letter in the last part of the URI and try to use URL encoded characters.
-func requestCaseSwitching(options RequestOptions) {
-	color.Cyan("\n━━━━━━━━━━━━━ CASE SWITCHING ━━━━━━━━━━━━━━")
+// requestPathCaseSwitching makes HTTP requests by capitalizing each letter in the last part of the URI and try to use URL encoded characters.
+func requestPathCaseSwitching(options RequestOptions) {
+	color.Cyan("\n━━━━━━━━━━━━ PATH CASE SWITCHING ━━━━━━━━━━━━━")
 
 	parsedURL, err := url.Parse(options.uri)
 	if err != nil {
@@ -375,38 +455,34 @@ func requestCaseSwitching(options RequestOptions) {
 	uripath := strings.Trim(parsedURL.Path, "/")
 
 	if len(uripath) == 0 {
-		os.Exit(0)
+		log.Println("No path to modify")
+		return
 	}
+
+	pathCombinations := generateCaseCombinations(uripath)
+	selectedPaths := selectRandomCombinations(pathCombinations, 60)
 
 	w := goccm.New(maxGoroutines)
 
-	for _, z := range uripath {
+	for _, path := range selectedPaths {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
-		go func(z rune) {
-			newpath := strings.Map(func(r rune) rune {
-				if r == z {
-					return unicode.ToUpper(r)
-				} else {
-					return r
-				}
-			}, uripath)
-
+		go func(path string) {
 			var fullpath string
-			if uri[len(uri)-1:] == "/" {
-				fullpath = baseuri + newpath + "/"
+			if strings.HasSuffix(options.uri, "/") {
+				fullpath = baseuri + "/" + path + "/"
 			} else {
-				fullpath = baseuri + "/" + newpath
+				fullpath = baseuri + "/" + path
 			}
 
-			statusCode, response, err := request(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.redirect)
+			statusCode, response, err := request(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				log.Println(err)
 			}
 
 			printResponse(Result{fullpath, statusCode, len(response), false})
 			w.Done()
-		}(z)
+		}(path)
 	}
 
 	for _, z := range uripath {
@@ -423,7 +499,7 @@ func requestCaseSwitching(options RequestOptions) {
 				fullpath = baseuri + "/" + newpath
 			}
 
-			statusCode, response, err := request(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.redirect)
+			statusCode, response, err := request(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				log.Println(err)
 			}
@@ -432,6 +508,7 @@ func requestCaseSwitching(options RequestOptions) {
 			w.Done()
 		}(z)
 	}
+
 	w.WaitAllDone()
 }
 
@@ -453,16 +530,16 @@ func randomLine(filePath string) (string, error) {
 		return "", err
 	}
 
-	// Semilla para la generación de números aleatorios basada en la hora actual
+	// Seed the random number generator
 	rand.Seed(time.Now().UnixNano())
-	// Selecciona una línea aleatoria
+	// Select a random Line
 	randomLine := lines[rand.Intn(len(lines))]
 
 	return randomLine, nil
 }
 
 // requester is the main function that runs all the tests.
-func requester(uri string, proxy string, userAgent string, reqHeaders []string, bypassIP string, folder string, method string, verbose bool, banner bool, rateLimit bool, redirect bool, randomAgent bool) {
+func requester(uri string, proxy string, userAgent string, reqHeaders []string, bypassIP string, folder string, method string, verbose bool, banner bool, rateLimit bool, timeout int, redirect bool, randomAgent bool) {
 	// Set up proxy if provided.
 	if len(proxy) != 0 {
 		if !strings.Contains(proxy, "http") {
@@ -520,6 +597,7 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 		redirect:   redirect,
 		folder:     folder,
 		bypassIP:   bypassIP,
+		timeout:    timeout,
 		rateLimit:  rateLimit,
 		verbose:    verbose,
 		reqHeaders: reqHeaders,
@@ -530,9 +608,10 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 	showInfo(options)
 	requestDefault(options)
 	requestMethods(options)
+	requestMethodsCaseSwitching(options)
 	requestHeaders(options)
 	requestEndPaths(options)
 	requestMidPaths(options)
 	requestHttpVersions(options)
-	requestCaseSwitching(options)
+	requestPathCaseSwitching(options)
 }
