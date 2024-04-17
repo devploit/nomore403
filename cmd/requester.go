@@ -146,7 +146,6 @@ func filterOriginalMethod(originalMethod string, combinations []string) []string
 // selectRandomCombinations selects up to n random combinations from a list of combinations.
 func selectRandomCombinations(combinations []string, n int) []string {
 	rand.Seed(time.Now().UnixNano())
-
 	if len(combinations) <= n {
 		return combinations
 	}
@@ -242,7 +241,7 @@ func requestHeaders(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━━━━━━━ HEADERS ━━━━━━━━━━━━━━━━━━━")
 
 	var lines []string
-	lines, err := parseFile(folder + "/headers")
+	lines, err := parseFile(options.folder + "/headers")
 	if err != nil {
 		log.Fatalf("Error reading /headers file: %v", err)
 	}
@@ -251,13 +250,13 @@ func requestHeaders(options RequestOptions) {
 	if len(options.bypassIP) != 0 {
 		ips = []string{options.bypassIP}
 	} else {
-		ips, err = parseFile(folder + "/ips")
+		ips, err = parseFile(options.folder + "/ips")
 		if err != nil {
 			log.Fatalf("Error reading /ips file: %v", err)
 		}
 	}
 
-	simpleheaders, err := parseFile(folder + "/simpleheaders")
+	simpleheaders, err := parseFile(options.folder + "/simpleheaders")
 	if err != nil {
 		log.Fatalf("Error reading /simpleheaders file: %v", err)
 	}
@@ -338,8 +337,8 @@ func requestMidPaths(options RequestOptions) {
 	if err != nil {
 		log.Fatalf("Error reading custom paths file: %v", err)
 	}
-
-	x := strings.Split(uri, "/")
+	// fmt.Println(options.uri, "ádkohasdjkhasdjklohans")
+	x := strings.Split(options.uri, "/")
 	var uripath string
 
 	parsedURL, err := url.Parse(options.uri)
@@ -347,7 +346,7 @@ func requestMidPaths(options RequestOptions) {
 		log.Println(err)
 	}
 	if parsedURL.Path != "" && parsedURL.Path != "/" {
-		if uri[len(uri)-1:] == "/" {
+		if options.uri[len(options.uri)-1:] == "/" {
 			uripath = x[len(x)-2]
 		} else {
 			uripath = x[len(x)-1]
@@ -363,7 +362,7 @@ func requestMidPaths(options RequestOptions) {
 			w.Wait()
 			go func(line string) {
 				var fullpath string
-				if uri[len(uri)-1:] == "/" {
+				if options.uri[len(options.uri)-1:] == "/" {
 					fullpath = baseuri + line + uripath + "/"
 				} else {
 					fullpath = baseuri + "/" + line + uripath
@@ -412,8 +411,9 @@ func curlRequest(url string, headers []string, proxy string, httpVersion string)
 	}
 	args = append(args, "--insecure")
 	args = append(args, url)
-
-	out, err := exec.Command("curl", args...).Output()
+	cmd := exec.Command("curl", args...)
+	// fmt.Println(cmd.String())
+	out, err := cmd.Output()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -461,7 +461,6 @@ func requestPathCaseSwitching(options RequestOptions) {
 
 	pathCombinations := generateCaseCombinations(uripath)
 	selectedPaths := selectRandomCombinations(pathCombinations, 60)
-
 	w := goccm.New(maxGoroutines)
 
 	for _, path := range selectedPaths {
@@ -493,8 +492,8 @@ func requestPathCaseSwitching(options RequestOptions) {
 			newpath := strings.Replace(uripath, string(z), encodedChar, 1)
 
 			var fullpath string
-			if uri[len(options.uri)-1:] == "/" {
-				fullpath = baseuri + newpath + "/"
+			if options.uri[len(options.uri)-1:] == "/" {
+				fullpath = baseuri + "/" + newpath + "/"
 			} else {
 				fullpath = baseuri + "/" + newpath
 			}
@@ -582,7 +581,7 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 	if len(reqHeaders[0]) != 0 {
 		for _, _header := range reqHeaders {
 			headerSplit := strings.Split(_header, ":")
-			headers = append(headers, header{headerSplit[0], headerSplit[1]})
+			headers = append(headers, header{headerSplit[0], strings.Join(headerSplit[1:], "")})
 		}
 	}
 

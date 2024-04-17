@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"crypto/tls"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -117,34 +116,39 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 // loadFlagsFromRequestFile parse an HTTP request and configure the necessary flags for an execution
 func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, redirect bool) {
 	// Read the content of the request file
-	content, err := ioutil.ReadFile(requestFile)
+	content, err := os.ReadFile(requestFile)
 	if err != nil {
 		log.Fatalf("Error reading request file: %v", err)
 	}
+	//Down HTTP/2 to HTTP/1/1
+	temp := strings.Split(string(content), "\n")
+	fistLine := strings.Replace(temp[0], "HTTP/2", "HTTP/1.1", 1)
+	content = []byte(strings.Join(append([]string{fistLine}, temp[1:]...), "\n"))
+
+	reqReader := strings.NewReader(string(content))
+	req, err := http.ReadRequest(bufio.NewReader(reqReader))
+	if err != nil {
+		log.Fatalf("Error parsing request: %v", err)
+	}
+	if strings.HasPrefix(req.RequestURI, "http://") {
+		req.RequestURI = "/" + strings.SplitAfterN(req.RequestURI, "/", 4)[3]
+	}
+
 	httpSchema := "https://"
 
 	if schema {
 		httpSchema = "http://"
 	}
 
-	// Split the request into lines
-	requestLines := strings.Split(string(content), "\n")
-	firstLine := requestLines[0]
-	headers := requestLines[1:]
-	host := strings.Split(requestLines[1], " ")
-
-	// Extract the HTTP method and URL from the first line of the request
-	parts := strings.Split(firstLine, " ")
-	uri := httpSchema + host[1] + parts[1]
+	uri := httpSchema + req.Host + strings.Split(req.RequestURI, "?")[0]
 
 	// Extract headers from the request and assign them to the req_headers slice
 	var reqHeaders []string
-	for _, h := range headers {
-		if len(h) > 0 {
-			reqHeaders = append(reqHeaders, h)
-		}
+	// Append req.Header to reqHeaders
+	for k, v := range req.Header {
+		reqHeaders = append(reqHeaders, k+": "+strings.Join(v, ""))
 	}
-
+	httpMethod := req.Method
 	// Assign the extracted values to the corresponding flag variables
 	requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, nobanner, rateLimit, timeout, redirect, randomAgent)
 }
