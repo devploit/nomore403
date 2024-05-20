@@ -85,7 +85,7 @@ func showInfo(options RequestOptions) {
  ╲__╱_____╱╲________╱╲__╱__╱__╱╲________╱╲____╱___╱╲________╱    ╱____╱╲________╱╲________╱                                   
 	`)
 	}
-	fmt.Printf("%s \t\t%s\n", "Target:", uri)
+	fmt.Printf("%s \t\t%s\n", "Target:", options.uri)
 	if len(options.reqHeaders[0]) != 0 {
 		for _, header := range options.headers {
 			fmt.Printf("%s \t\t%s\n", "Headers:", header)
@@ -181,7 +181,7 @@ func requestMethods(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━━━━ VERB TAMPERING ━━━━━━━━━━━━━━━")
 
 	var lines []string
-	lines, err := parseFile(folder + "/httpmethods")
+	lines, err := parseFile(options.folder + "/httpmethods")
 	if err != nil {
 		log.Fatalf("Error reading /httpmethods file: %v", err)
 	}
@@ -209,7 +209,7 @@ func requestMethodsCaseSwitching(options RequestOptions) {
 	color.Cyan("\n━━━━━━━ VERB TAMPERING CASE SWITCHING ━━━━━━━━")
 
 	var lines []string
-	lines, err := parseFile(folder + "/httpmethods")
+	lines, err := parseFile(options.folder + "/httpmethods")
 	if err != nil {
 		log.Fatalf("Error reading /httpmethods file: %v", err)
 	}
@@ -306,7 +306,7 @@ func requestEndPaths(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━━━━ CUSTOM PATHS ━━━━━━━━━━━━━━━━━")
 
 	var lines []string
-	lines, err := parseFile(folder + "/endpaths")
+	lines, err := parseFile(options.folder + "/endpaths")
 	if err != nil {
 		log.Fatalf("Error reading custom paths file: %v", err)
 	}
@@ -333,7 +333,7 @@ func requestEndPaths(options RequestOptions) {
 // requestMidPaths makes HTTP requests using a list of custom mid-paths from a file and prints the results.
 func requestMidPaths(options RequestOptions) {
 	var lines []string
-	lines, err := parseFile(folder + "/midpaths")
+	lines, err := parseFile(options.folder + "/midpaths")
 	if err != nil {
 		log.Fatalf("Error reading custom paths file: %v", err)
 	}
