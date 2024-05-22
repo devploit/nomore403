@@ -85,10 +85,10 @@ Verbose:                false
 ./nomore403 -u https://domain.com/admin
 ```
 
-### Verbose Mode + Proxy
+### Verbose Mode + Proxy + Specific techniques to use
 
 ```bash
-./nomore403 -u https://domain.com/admin -x http://127.0.0.1:8080 -v
+./nomore403 -u https://domain.com/admin -x http://127.0.0.1:8080 -k headers,http-versions -v
 ```
 
 ### Parse request from Burp
@@ -132,6 +132,7 @@ Flags:
   -l, --rate-limit            Halt requests upon encountering a 429 (rate limit) HTTP status code.
   -r, --redirect              Automatically follow redirects in responses.
       --request-file string   Load request configuration and flags from a specified file.
+  -k, --technique strings     Specify one or more attack techniques to use (e.g., headers,path-case). (default [verbs,verbs-case,headers,endpaths,midpaths,http-versions,path-case])
       --timeout int           Specify a max timeout time in ms (default 6000)
   -u, --uri string            Specify the target URL for the request.
   -a, --user-agent string     pecify a custom User-Agent string for requests (default: 'nomore403').

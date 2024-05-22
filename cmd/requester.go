@@ -36,6 +36,7 @@ type RequestOptions struct {
 	bypassIP   string
 	timeout    int
 	rateLimit  bool
+	techniques []string
 	verbose    bool
 	reqHeaders []string
 	banner     bool
@@ -110,6 +111,7 @@ func showInfo(options RequestOptions) {
 	fmt.Printf("%s \t%s\n", "Rate Limit detection:", strconv.FormatBool(options.rateLimit))
 	fmt.Printf("%s \t\t%d\n", "Timeout (ms):", options.timeout)
 	fmt.Printf("%s \t\t%d\n", "Delay (ms):", delay)
+	fmt.Printf("%s \t\t%s\n", "Techniques:", strings.Join(options.techniques, ", "))
 	fmt.Printf("%s \t\t%t\n", "Verbose:", options.verbose)
 }
 
@@ -538,7 +540,7 @@ func randomLine(filePath string) (string, error) {
 }
 
 // requester is the main function that runs all the tests.
-func requester(uri string, proxy string, userAgent string, reqHeaders []string, bypassIP string, folder string, method string, verbose bool, banner bool, rateLimit bool, timeout int, redirect bool, randomAgent bool) {
+func requester(uri string, proxy string, userAgent string, reqHeaders []string, bypassIP string, folder string, method string, verbose bool, techniques []string, banner bool, rateLimit bool, timeout int, redirect bool, randomAgent bool) {
 	// Set up proxy if provided.
 	if len(proxy) != 0 {
 		if !strings.Contains(proxy, "http") {
@@ -599,18 +601,33 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 		timeout:    timeout,
 		rateLimit:  rateLimit,
 		verbose:    verbose,
+		techniques: techniques,
 		reqHeaders: reqHeaders,
 		banner:     banner,
 	}
 
 	// Call each function that will send HTTP requests with different variations of headers and URLs.
 	showInfo(options)
-	requestDefault(options)
-	requestMethods(options)
-	requestMethodsCaseSwitching(options)
-	requestHeaders(options)
-	requestEndPaths(options)
-	requestMidPaths(options)
-	requestHttpVersions(options)
-	requestPathCaseSwitching(options)
+
+	for _, tech := range techniques {
+		switch tech {
+		case "verbs":
+			requestMethods(options)
+		case "verbs-case":
+			requestMethodsCaseSwitching(options)
+		case "headers":
+			requestHeaders(options)
+		case "endpaths":
+			requestEndPaths(options)
+		case "midpaths":
+			requestMidPaths(options)
+		case "http-versions":
+			requestHttpVersions(options)
+		case "path-case":
+			requestPathCaseSwitching(options)
+		default:
+			fmt.Printf("Unrecognized technique. %s\n", tech)
+			fmt.Print("Available techniques: verbs, verbs-case, headers, endpaths, midpaths, http-versions, path-case\n")
+		}
+	}
 }

@@ -114,7 +114,7 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 }
 
 // loadFlagsFromRequestFile parse an HTTP request and configure the necessary flags for an execution
-func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, redirect bool) {
+func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, techniques []string, redirect bool) {
 	// Read the content of the request file
 	content, err := os.ReadFile(requestFile)
 	if err != nil {
@@ -150,5 +150,5 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, red
 	}
 	httpMethod := req.Method
 	// Assign the extracted values to the corresponding flag variables
-	requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, nobanner, rateLimit, timeout, redirect, randomAgent)
+	requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, technique, nobanner, rateLimit, timeout, redirect, randomAgent)
 }

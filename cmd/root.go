@@ -27,6 +27,7 @@ var (
 	reqHeaders    []string
 	requestFile   string
 	schema        bool
+	technique     []string
 	uri           string
 	userAgent     string
 	verbose       bool
@@ -54,11 +55,11 @@ var rootCmd = &cobra.Command{
 				if uri == lastchar {
 					break
 				}
-				requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, nobanner, rateLimit, timeout, redirect, randomAgent)
+				requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, technique, nobanner, rateLimit, timeout, redirect, randomAgent)
 			}
 		} else {
 			if len(requestFile) > 0 {
-				loadFlagsFromRequestFile(requestFile, schema, verbose, redirect)
+				loadFlagsFromRequestFile(requestFile, schema, verbose, technique, redirect)
 			} else {
 				if len(uri) == 0 {
 					err := cmd.Help()
@@ -67,7 +68,7 @@ var rootCmd = &cobra.Command{
 					}
 					log.Fatal()
 				}
-				requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, nobanner, rateLimit, timeout, redirect, randomAgent)
+				requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, technique, nobanner, rateLimit, timeout, redirect, randomAgent)
 			}
 		}
 	},
@@ -90,11 +91,12 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&httpMethod, "http-method", "t", "", "Specify the HTTP method for the request (e.g., GET, POST). Default is 'GET'.")
 	rootCmd.PersistentFlags().IntVarP(&maxGoroutines, "max-goroutines", "m", 50, "Limit the maximum number of concurrent goroutines to manage load (default: 50).")
 	rootCmd.PersistentFlags().BoolVarP(&nobanner, "no-banner", "", false, "Disable the display of the startup banner (default: banner shown).")
-	rootCmd.PersistentFlags().StringVarP(&proxy, "proxy", "x", "", "Specify a proxy server for requests, e.g., 'http://server:port'.")
+	rootCmd.PersistentFlags().StringVarP(&proxy, "proxy", "x", "", "Specify a proxy server for requests (e.g., 'http://server:port').")
 	rootCmd.PersistentFlags().BoolVarP(&randomAgent, "random-agent", "", false, "Enable the use of a randomly selected User-Agent.")
 	rootCmd.PersistentFlags().BoolVarP(&rateLimit, "rate-limit", "l", false, "Halt requests upon encountering a 429 (rate limit) HTTP status code.")
 	rootCmd.PersistentFlags().BoolVarP(&redirect, "redirect", "r", false, "Automatically follow redirects in responses.")
 	rootCmd.PersistentFlags().StringVarP(&requestFile, "request-file", "", "", "Load request configuration and flags from a specified file.")
+	rootCmd.PersistentFlags().StringSliceVarP(&technique, "technique", "k", []string{"verbs", "verbs-case", "headers", "endpaths", "midpaths", "http-versions", "path-case"}, "Specify one or more attack techniques to use (e.g., headers,path-case).")
 	rootCmd.PersistentFlags().IntVarP(&timeout, "timeout", "", 6000, "Specify a max timeout time in ms.")
 	rootCmd.PersistentFlags().StringVarP(&uri, "uri", "u", "", "Specify the target URL for the request.")
 	rootCmd.PersistentFlags().StringVarP(&userAgent, "user-agent", "a", "", "pecify a custom User-Agent string for requests (default: 'nomore403').")
