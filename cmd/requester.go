@@ -1,30 +1,29 @@
 package cmd
 
 import (
-        "bufio"
-        "fmt"
-        "log"
-        "math/rand"
-        "net/url"
-        "os"
-        "os/exec"
-        "strconv"
-        "strings"
-        "sync"
-        "time"
-        "unicode"
+	"bufio"
+	"fmt"
+	"log"
+	"math/rand"
+	"net/url"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"unicode"
 
-        "github.com/fatih/color"
-        "github.com/zenthangplus/goccm"
+	"github.com/fatih/color"
+	"github.com/zenthangplus/goccm"
 )
 
 type Result struct {
-        line          string
-        statusCode    int
-        contentLength int
-        defaultReq    bool
+	line          string
+	statusCode    int
+	contentLength int
+	defaultReq    bool
 }
-
 
 type RequestOptions struct {
 	uri        string
@@ -50,60 +49,66 @@ var printMutex = &sync.Mutex{}
 var uniqueResults = make(map[string]bool)
 
 // printResponse prints the results of HTTP requests in a tabular format with colored output based on the status codes.
-// printResponse prints the results of HTTP requests in a tabular format with colored output based on the status codes.
 func printResponse(result Result) {
-        printMutex.Lock()
-        defer printMutex.Unlock()
+	printMutex.Lock()
+	defer printMutex.Unlock()
 
-        // Check if status code filtering is enabled
-        if len(statusCodes) > 0 {
-                statusMatch := false
-                for _, code := range statusCodes {
-                        if strconv.Itoa(result.statusCode) == code {
-                                statusMatch = true
-                                break
-                        }
-                }
-                if !statusMatch {
-                        return
-                }
-        }
+	// Check if status code filtering is enabled
+	if len(statusCodes) > 0 {
+		statusMatch := false
+		for _, code := range statusCodes {
+			if strconv.Itoa(result.statusCode) == code {
+				statusMatch = true
+				break
+			}
+		}
+		if !statusMatch {
+			return
+		}
+	}
 
-        // Check for unique output if enabled
-        if uniqueOutput {
-                key := fmt.Sprintf("%d-%d", result.statusCode, result.contentLength)
-                if uniqueResults[key] {
-                        return
-                }
-                uniqueResults[key] = true
-        }
+	// Check for unique output if enabled
+	if uniqueOutput {
+		key := fmt.Sprintf("%d-%d", result.statusCode, result.contentLength)
+		if uniqueResults[key] {
+			return
+		}
+		uniqueResults[key] = true
+	}
 
-        resultContentLength := strconv.Itoa(result.contentLength) + " bytes"
+	resultContentLength := strconv.Itoa(result.contentLength) + " bytes"
 
-        var code string
-        switch result.statusCode {
-        case 200, 201, 202, 203, 204, 205, 206:
-                code = color.GreenString(strconv.Itoa(result.statusCode))
-        case 300, 301, 302, 303, 304, 307, 308:
-                code = color.YellowString(strconv.Itoa(result.statusCode))
-        case 400, 401, 402, 403, 404, 405, 406, 407, 408, 413, 429:
-                code = color.RedString(strconv.Itoa(result.statusCode))
-        case 500, 501, 502, 503, 504, 505, 511:
-                code = color.MagentaString(strconv.Itoa(result.statusCode))
-        }
+	var code string
+	switch result.statusCode {
+	case 200, 201, 202, 203, 204, 205, 206:
+		code = color.GreenString(strconv.Itoa(result.statusCode))
+	case 300, 301, 302, 303, 304, 307, 308:
+		code = color.YellowString(strconv.Itoa(result.statusCode))
+	case 400, 401, 402, 403, 404, 405, 406, 407, 408, 413, 429:
+		code = color.RedString(strconv.Itoa(result.statusCode))
+	case 500, 501, 502, 503, 504, 505, 511:
+		code = color.MagentaString(strconv.Itoa(result.statusCode))
+	}
 
-        if !_verbose {
-                if ((defaultSc == result.statusCode) && (defaultCl == result.contentLength) || result.contentLength == 0 || result.statusCode == 404 || result.statusCode == 400) && !result.defaultReq {
-                        return
-                } else {
-                        fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
-                }
-        } else {
-                fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
-        }
+	if !_verbose {
+		if ((defaultSc == result.statusCode) && (defaultCl == result.contentLength) || result.contentLength == 0 || result.statusCode == 404 || result.statusCode == 400) && !result.defaultReq {
+			return
+		} else {
+			fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
+		}
+	} else {
+		fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
+	}
 }
 
 func showInfo(options RequestOptions) {
+	var statusCodeStrings []string
+
+	for _, code := range statusCodes {
+		statusCodeStrings = append(statusCodeStrings, code)
+	}
+	statusCodesString := strings.Join(statusCodeStrings, ", ")
+
 	if !nobanner {
 		fmt.Println(`
     ________  ________  ________  ________  ________  ________  ________  ________  ________
@@ -112,34 +117,36 @@ func showInfo(options RequestOptions) {
  ╱         ╱         ╱         ╱         ╱        _╱       __/____     ╱         ╱         ╱
  ╲__╱_____╱╲________╱╲__╱__╱__╱╲________╱╲____╱___╱╲________╱    ╱____╱╲________╱╲________╱                                   
 	`)
-	}
-	fmt.Printf("%s \t\t%s\n", "Target:", options.uri)
-	if len(options.reqHeaders[0]) != 0 {
-		for _, header := range options.headers {
-			fmt.Printf("%s \t\t%s\n", "Headers:", header)
+		fmt.Printf("%s \t\t%s\n", "Target:", options.uri)
+		if len(options.reqHeaders[0]) != 0 {
+			for _, header := range options.headers {
+				fmt.Printf("%s \t\t%s\n", "Headers:", header)
+			}
+		} else {
+			fmt.Printf("%s \t\t%s\n", "Headers:", "false")
 		}
-	} else {
-		fmt.Printf("%s \t\t%s\n", "Headers:", "false")
+		if len(options.proxy.Host) != 0 {
+			fmt.Printf("%s \t\t\t%s\n", "Proxy:", options.proxy.Host)
+		} else {
+			fmt.Printf("%s \t\t\t%s\n", "Proxy:", "false")
+		}
+		fmt.Printf("%s \t\t%s\n", "User Agent:", options.userAgent)
+		fmt.Printf("%s \t\t%s\n", "Method:", options.method)
+		fmt.Printf("%s \t%s\n", "Payloads folder:", options.folder)
+		if len(bypassIP) != 0 {
+			fmt.Printf("%s \t%s\n", "Custom bypass IP:", options.bypassIP)
+		} else {
+			fmt.Printf("%s \t%s\n", "Custom bypass IP:", "false")
+		}
+		fmt.Printf("%s \t%s\n", "Follow Redirects:", strconv.FormatBool(options.redirect))
+		fmt.Printf("%s \t%s\n", "Rate Limit detection:", strconv.FormatBool(options.rateLimit))
+		fmt.Printf("%s \t\t%s\n", "Status:", statusCodesString)
+		fmt.Printf("%s \t\t%d\n", "Timeout (ms):", options.timeout)
+		fmt.Printf("%s \t\t%d\n", "Delay (ms):", delay)
+		fmt.Printf("%s \t\t%s\n", "Techniques:", strings.Join(options.techniques, ", "))
+		fmt.Printf("%s \t\t%t\n", "Unique:", uniqueOutput)
+		fmt.Printf("%s \t\t%t\n", "Verbose:", options.verbose)
 	}
-	if len(options.proxy.Host) != 0 {
-		fmt.Printf("%s \t\t\t%s\n", "Proxy:", options.proxy.Host)
-	} else {
-		fmt.Printf("%s \t\t\t%s\n", "Proxy:", "false")
-	}
-	fmt.Printf("%s \t\t%s\n", "User Agent:", options.userAgent)
-	fmt.Printf("%s \t\t%s\n", "Method:", options.method)
-	fmt.Printf("%s \t%s\n", "Payloads folder:", options.folder)
-	if len(bypassIP) != 0 {
-		fmt.Printf("%s \t%s\n", "Custom bypass IP:", options.bypassIP)
-	} else {
-		fmt.Printf("%s \t%s\n", "Custom bypass IP:", "false")
-	}
-	fmt.Printf("%s \t%s\n", "Follow Redirects:", strconv.FormatBool(options.redirect))
-	fmt.Printf("%s \t%s\n", "Rate Limit detection:", strconv.FormatBool(options.rateLimit))
-	fmt.Printf("%s \t\t%d\n", "Timeout (ms):", options.timeout)
-	fmt.Printf("%s \t\t%d\n", "Delay (ms):", delay)
-	fmt.Printf("%s \t\t%s\n", "Techniques:", strings.Join(options.techniques, ", "))
-	fmt.Printf("%s \t\t%t\n", "Verbose:", options.verbose)
 }
 
 // generateCaseCombinations generates all combinations of uppercase and lowercase letters for a given string.
@@ -592,7 +599,7 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 	} else {
 		line, err := randomLine(folder + "/useragents")
 		if err != nil {
-			fmt.Println("Error al leer el archivo:", err)
+			fmt.Println("Error reading the file:", err)
 			return
 		}
 		userAgent = line
@@ -617,28 +624,28 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 
 	_verbose = verbose
 
-        options := RequestOptions{
-                uri:        uri,
-                headers:    headers,
-                method:     method,
-                proxy:      userProxy,
-                userAgent:  userAgent,
-                redirect:   redirect,
-                folder:     folder,
-                bypassIP:   bypassIP,
-                timeout:    timeout,
-                rateLimit:  rateLimit,
-                verbose:    verbose,
-                techniques: techniques,
-                reqHeaders: reqHeaders,
-                banner:     banner,
-        }
+	options := RequestOptions{
+		uri:        uri,
+		headers:    headers,
+		method:     method,
+		proxy:      userProxy,
+		userAgent:  userAgent,
+		redirect:   redirect,
+		folder:     folder,
+		bypassIP:   bypassIP,
+		timeout:    timeout,
+		rateLimit:  rateLimit,
+		verbose:    verbose,
+		techniques: techniques,
+		reqHeaders: reqHeaders,
+		banner:     banner,
+	}
 
-        // Reset uniqueResults map before starting new requests
-        uniqueResults = make(map[string]bool)
+	// Reset uniqueResults map before starting new requests
+	uniqueResults = make(map[string]bool)
 
-        // Call each function that will send HTTP requests with different variations of headers and URLs.
-        showInfo(options)
+	// Call each function that will send HTTP requests with different variations of headers and URLs.
+	showInfo(options)
 
 	for _, tech := range techniques {
 		switch tech {
