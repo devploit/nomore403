@@ -1,29 +1,30 @@
 package cmd
 
 import (
-	"bufio"
-	"fmt"
-	"log"
-	"math/rand"
-	"net/url"
-	"os"
-	"os/exec"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
-	"unicode"
+        "bufio"
+        "fmt"
+        "log"
+        "math/rand"
+        "net/url"
+        "os"
+        "os/exec"
+        "strconv"
+        "strings"
+        "sync"
+        "time"
+        "unicode"
 
-	"github.com/fatih/color"
-	"github.com/zenthangplus/goccm"
+        "github.com/fatih/color"
+        "github.com/zenthangplus/goccm"
 )
 
 type Result struct {
-	line          string
-	statusCode    int
-	contentLength int
-	defaultReq    bool
+        line          string
+        statusCode    int
+        contentLength int
+        defaultReq    bool
 }
+
 
 type RequestOptions struct {
 	uri        string
@@ -46,34 +47,60 @@ var _verbose bool
 var defaultSc int
 var defaultCl int
 var printMutex = &sync.Mutex{}
+var uniqueResults = make(map[string]bool)
 
 // printResponse prints the results of HTTP requests in a tabular format with colored output based on the status codes.
+// printResponse prints the results of HTTP requests in a tabular format with colored output based on the status codes.
 func printResponse(result Result) {
-	printMutex.Lock()
-	defer printMutex.Unlock()
+        printMutex.Lock()
+        defer printMutex.Unlock()
 
-	resultContentLength := strconv.Itoa(result.contentLength) + " bytes"
+        // Check if status code filtering is enabled
+        if len(statusCodes) > 0 {
+                statusMatch := false
+                for _, code := range statusCodes {
+                        if strconv.Itoa(result.statusCode) == code {
+                                statusMatch = true
+                                break
+                        }
+                }
+                if !statusMatch {
+                        return
+                }
+        }
 
-	var code string
-	switch result.statusCode {
-	case 200, 201, 202, 203, 204, 205, 206:
-		code = color.GreenString(strconv.Itoa(result.statusCode))
-	case 300, 301, 302, 303, 304, 307, 308:
-		code = color.YellowString(strconv.Itoa(result.statusCode))
-	case 400, 401, 402, 403, 404, 405, 406, 407, 408, 413, 429:
-		code = color.RedString(strconv.Itoa(result.statusCode))
-	case 500, 501, 502, 503, 504, 505, 511:
-		code = color.MagentaString(strconv.Itoa(result.statusCode))
-	}
-	if !_verbose {
-		if ((defaultSc == result.statusCode) && (defaultCl == result.contentLength) || result.contentLength == 0 || result.statusCode == 404 || result.statusCode == 400) && !result.defaultReq {
-			return
-		} else {
-			fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
-		}
-	} else {
-		fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
-	}
+        // Check for unique output if enabled
+        if uniqueOutput {
+                key := fmt.Sprintf("%d-%d", result.statusCode, result.contentLength)
+                if uniqueResults[key] {
+                        return
+                }
+                uniqueResults[key] = true
+        }
+
+        resultContentLength := strconv.Itoa(result.contentLength) + " bytes"
+
+        var code string
+        switch result.statusCode {
+        case 200, 201, 202, 203, 204, 205, 206:
+                code = color.GreenString(strconv.Itoa(result.statusCode))
+        case 300, 301, 302, 303, 304, 307, 308:
+                code = color.YellowString(strconv.Itoa(result.statusCode))
+        case 400, 401, 402, 403, 404, 405, 406, 407, 408, 413, 429:
+                code = color.RedString(strconv.Itoa(result.statusCode))
+        case 500, 501, 502, 503, 504, 505, 511:
+                code = color.MagentaString(strconv.Itoa(result.statusCode))
+        }
+
+        if !_verbose {
+                if ((defaultSc == result.statusCode) && (defaultCl == result.contentLength) || result.contentLength == 0 || result.statusCode == 404 || result.statusCode == 400) && !result.defaultReq {
+                        return
+                } else {
+                        fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
+                }
+        } else {
+                fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
+        }
 }
 
 func showInfo(options RequestOptions) {
@@ -541,6 +568,7 @@ func randomLine(filePath string) (string, error) {
 
 // requester is the main function that runs all the tests.
 func requester(uri string, proxy string, userAgent string, reqHeaders []string, bypassIP string, folder string, method string, verbose bool, techniques []string, banner bool, rateLimit bool, timeout int, redirect bool, randomAgent bool) {
+
 	// Set up proxy if provided.
 	if len(proxy) != 0 {
 		if !strings.Contains(proxy, "http") {
@@ -589,25 +617,28 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 
 	_verbose = verbose
 
-	options := RequestOptions{
-		uri:        uri,
-		headers:    headers,
-		method:     method,
-		proxy:      userProxy,
-		userAgent:  userAgent,
-		redirect:   redirect,
-		folder:     folder,
-		bypassIP:   bypassIP,
-		timeout:    timeout,
-		rateLimit:  rateLimit,
-		verbose:    verbose,
-		techniques: techniques,
-		reqHeaders: reqHeaders,
-		banner:     banner,
-	}
+        options := RequestOptions{
+                uri:        uri,
+                headers:    headers,
+                method:     method,
+                proxy:      userProxy,
+                userAgent:  userAgent,
+                redirect:   redirect,
+                folder:     folder,
+                bypassIP:   bypassIP,
+                timeout:    timeout,
+                rateLimit:  rateLimit,
+                verbose:    verbose,
+                techniques: techniques,
+                reqHeaders: reqHeaders,
+                banner:     banner,
+        }
 
-	// Call each function that will send HTTP requests with different variations of headers and URLs.
-	showInfo(options)
+        // Reset uniqueResults map before starting new requests
+        uniqueResults = make(map[string]bool)
+
+        // Call each function that will send HTTP requests with different variations of headers and URLs.
+        showInfo(options)
 
 	for _, tech := range techniques {
 		switch tech {

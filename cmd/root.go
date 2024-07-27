@@ -31,9 +31,11 @@ var (
 	uri           string
 	userAgent     string
 	verbose       bool
+	statusCodes   []string // New flag for filtering status codes
+	uniqueOutput  bool     // New flag for unique output
 )
 
-// rootCmd
+// rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "nomore403",
 	Short: "Tool to bypass 40X response codes.",
@@ -99,8 +101,12 @@ func init() {
 	rootCmd.PersistentFlags().StringSliceVarP(&technique, "technique", "k", []string{"verbs", "verbs-case", "headers", "endpaths", "midpaths", "http-versions", "path-case"}, "Specify one or more attack techniques to use (e.g., headers,path-case).")
 	rootCmd.PersistentFlags().IntVarP(&timeout, "timeout", "", 6000, "Specify a max timeout time in ms.")
 	rootCmd.PersistentFlags().StringVarP(&uri, "uri", "u", "", "Specify the target URL for the request.")
-	rootCmd.PersistentFlags().StringVarP(&userAgent, "user-agent", "a", "", "pecify a custom User-Agent string for requests (default: 'nomore403').")
+	rootCmd.PersistentFlags().StringVarP(&userAgent, "user-agent", "a", "", "Specify a custom User-Agent string for requests (default: 'nomore403').")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for detailed request/response logging.")
+
+	// New flags
+	rootCmd.PersistentFlags().StringSliceVarP(&statusCodes, "status", "", []string{}, "Filter output by comma-separated status codes (e.g., 200,301,403)")
+	rootCmd.PersistentFlags().BoolVarP(&uniqueOutput, "unique", "", false, "Show unique output based on status code and response length")
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -125,7 +131,7 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err == nil {
 		_, err := fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
 		if err != nil {
-			log.Fatalf("{#err}")
+			log.Fatalf("Error writing to stderr: %v", err)
 		}
 	}
 }
