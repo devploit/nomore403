@@ -134,8 +134,8 @@ Flags:
       --request-file string   Load request configuration and flags from a specified file.
   -k, --technique strings     Specify one or more attack techniques to use (e.g., headers,path-case). (default [verbs,verbs-case,headers,endpaths,midpaths,http-versions,path-case])
       --timeout int           Specify a max timeout time in ms (default 6000)
- ## --status strings        Filter output by comma-separated status codes (e.g., 200,301,403)
- ## --unique                Show unique output based on status code and response length
+      --status strings        Filter output by comma-separated status codes (e.g., 200,301,403)
+      --unique                Show unique output based on status code and response length
   -u, --uri string            Specify the target URL for the request.
   -a, --user-agent string     pecify a custom User-Agent string for requests (default: 'nomore403').
   -v, --verbose               Enable verbose output for detailed request/response logging.
