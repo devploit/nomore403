@@ -49,15 +49,20 @@ To edit or add new bypasses, modify the payloads directly in the [payloads](http
  ╱         ╱         ╱         ╱         ╱        _╱       __/____     ╱         ╱         ╱
  ╲__╱_____╱╲________╱╲__╱__╱__╱╲________╱╲____╱___╱╲________╱    ╱____╱╲________╱╲________╱  
 
-Target: 		https://domain.com/admin
+Target:                 https://domain.com/admin
 Headers:                false
 Proxy:                  false
-User Agent:             Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.2; WOW64; Trident/7.0; 1ButtonTaskbar)
+User Agent:             nomore403
 Method:                 GET
 Payloads folder:        payloads
 Custom bypass IP:       false
 Follow Redirects:       false
 Rate Limit detection:   false
+Status:                 
+Timeout (ms):           6000
+Delay (ms):             0
+Techniques:             verbs, verbs-case, headers, endpaths, midpaths, http-versions, path-case
+Unique:                 false
 Verbose:                false
 
 ━━━━━━━━━━━━━ DEFAULT REQUEST ━━━━━━━━━━━━━
@@ -108,7 +113,7 @@ Verbose:                false
 ./nomore403 -u https://domain.com/admin -m 10 -d 200
 ```
 
-## Options Modded
+## Options
 
 ```bash
 ./nomore403 -h
@@ -127,17 +132,17 @@ Flags:
   -t, --http-method string    Specify the HTTP method for the request (e.g., GET, POST). Default is 'GET'.
   -m, --max-goroutines int    Limit the maximum number of concurrent goroutines to manage load (default: 50). (default 50)
       --no-banner             Disable the display of the startup banner (default: banner shown).
-  -x, --proxy string          Specify a proxy server for requests, e.g., 'http://server:port'.
+  -x, --proxy string          Specify a proxy server for requests (e.g., 'http://server:port').
       --random-agent          Enable the use of a randomly selected User-Agent.
   -l, --rate-limit            Halt requests upon encountering a 429 (rate limit) HTTP status code.
   -r, --redirect              Automatically follow redirects in responses.
       --request-file string   Load request configuration and flags from a specified file.
-  -k, --technique strings     Specify one or more attack techniques to use (e.g., headers,path-case). (default [verbs,verbs-case,headers,endpaths,midpaths,http-versions,path-case])
-      --timeout int           Specify a max timeout time in ms (default 6000)
       --status strings        Filter output by comma-separated status codes (e.g., 200,301,403)
+  -k, --technique strings     Specify one or more attack techniques to use (e.g., headers,path-case). (default [verbs,verbs-case,headers,endpaths,midpaths,http-versions,path-case])
+      --timeout int           Specify a max timeout time in ms. (default 6000)
       --unique                Show unique output based on status code and response length
   -u, --uri string            Specify the target URL for the request.
-  -a, --user-agent string     pecify a custom User-Agent string for requests (default: 'nomore403').
+  -a, --user-agent string     Specify a custom User-Agent string for requests (default: 'nomore403').
   -v, --verbose               Enable verbose output for detailed request/response logging.
 ```
 
