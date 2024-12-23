@@ -43,12 +43,7 @@ To edit or add new bypasses, modify the payloads directly in the [payloads](http
 ### Output example
 
 ```bash
-    ________  ________  ________  ________  ________  ________  ________  ________  ________
-   ╱     ╱  ╲╱        ╲╱    ╱   ╲╱        ╲╱        ╲╱        ╲╱    ╱   ╲╱        ╲╱__      ╲
-  ╱         ╱    ╱    ╱         ╱    ╱    ╱    ╱    ╱       __╱         ╱    ╱    ╱__       ╱
- ╱         ╱         ╱         ╱         ╱        _╱       __/____     ╱         ╱         ╱
- ╲__╱_____╱╲________╱╲__╱__╱__╱╲________╱╲____╱___╱╲________╱    ╱____╱╲________╱╲________╱  
-
+━━━━━━━━━━━━━━ NOMORE403 CONFIGURATION ━━━━━━━━━━━━━━━━━━
 Target:                 https://domain.com/admin
 Headers:                false
 Proxy:                  false
@@ -61,26 +56,33 @@ Rate Limit detection:   false
 Status:                 
 Timeout (ms):           6000
 Delay (ms):             0
-Techniques:             verbs, verbs-case, headers, endpaths, midpaths, http-versions, path-case
+Techniques:             verbs, verbs-case, headers, endpaths, midpaths, double-encoding, http-versions, path-case
 Unique:                 false
 Verbose:                false
+
+━━━━━━━━━━━━━━━ AUTO-CALIBRATION RESULTS ━━━━━━━━━━━━━━━
+[✔] Calibration URI: https://domain.com/admin/calibration_test_123456
+[✔] Status Code: 404
+[✔] Content Length: 1821 bytes
 
 ━━━━━━━━━━━━━ DEFAULT REQUEST ━━━━━━━━━━━━━
 403 	  429 bytes https://domain.com/admin
 
 ━━━━━━━━━━━━━ VERB TAMPERING ━━━━━━━━━━━━━━
 
+━━━━━ VERB TAMPERING CASE SWITCHING ━━━━━━━
+
 ━━━━━━━━━━━━━ HEADERS ━━━━━━━━━━━━━━━━━━━━━
 
 ━━━━━━━━━━━━━ CUSTOM PATHS ━━━━━━━━━━━━━━━━
 200 	 2047 bytes https://domain.com/;///..admin
 
+━━━━━━━━━━━━━ DOUBLE-ENCODING ━━━━━━━━━━━━━
+
 ━━━━━━━━━━━━━ HTTP VERSIONS ━━━━━━━━━━━━━━━
 403      429 bytes HTTP/1.0
-403      429 bytes HTTP/1.1
-403      429 bytes HTTP/2
 
-━━━━━━━━━━━━━ CASE SWITCHING ━━━━━━━━━━━━━━
+━━━━━━━━━━ PATH CASE SWITCHING ━━━━━━━━━━━━
 200 	 2047 bytes https://domain.com/%61dmin
 ```
 
@@ -138,12 +140,12 @@ Flags:
   -r, --redirect              Automatically follow redirects in responses.
       --request-file string   Load request configuration and flags from a specified file.
       --status strings        Filter output by comma-separated status codes (e.g., 200,301,403)
-  -k, --technique strings     Specify one or more attack techniques to use (e.g., headers,path-case). (default [verbs,verbs-case,headers,endpaths,midpaths,http-versions,path-case])
+  -k, --technique strings     Specify one or more attack techniques to use (e.g., headers,path-case). (default [verbs,verbs-case,headers,endpaths,midpaths,double-encoding,http-versions,path-case])
       --timeout int           Specify a max timeout time in ms. (default 6000)
       --unique                Show unique output based on status code and response length
   -u, --uri string            Specify the target URL for the request.
   -a, --user-agent string     Specify a custom User-Agent string for requests (default: 'nomore403').
-  -v, --verbose               Enable verbose output for detailed request/response logging.
+  -v, --verbose               Enable verbose output for detailed request/response logging (not based on auto-calibrate).
 ```
 
 ## Contributing

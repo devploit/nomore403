@@ -3,6 +3,9 @@ package cmd
 import (
 	"bufio"
 	"crypto/tls"
+	"fmt"
+	"github.com/fatih/color"
+	"github.com/slicingmelon/go-rawurlparser"
 	"io"
 	"log"
 	"net"
@@ -12,8 +15,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"github.com/slicingmelon/go-rawurlparser"
 )
 
 // parseFile reads a file given its filename and returns a list containing each of its lines.
@@ -95,21 +96,11 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 		URL: &url.URL{
 			Scheme: parsedURL.Scheme,
 			Host:   parsedURL.Host,
-			Opaque: parsedURL.Path, // Use Opaque to prevent path normalization
+			Opaque: parsedURL.Path,
 		},
 		Header: make(http.Header),
 		Close:  true,
 	}
-
-	//log.Printf("Debug - Raw URL parsed: %s", uri)
-	// Don't use URL.String() for debugging, as it will perform encodings and normalization
-	// log.Printf("Debug - Request Components - Scheme: %s, Host: %s, Path: %s, RawPath: %s, Opaque: %s",
-	// 	req.URL.Scheme,
-	// 	req.URL.Host,
-	// 	req.URL.Path,
-	// 	req.URL.RawPath,
-	// 	req.URL.Opaque,
-	// )
 
 	for _, header := range headers {
 		req.Header.Add(header.key, header.value)
@@ -176,4 +167,29 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, tec
 	httpMethod := req.Method
 	// Assign the extracted values to the corresponding flag variables
 	requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, technique, nobanner, rateLimit, timeout, redirect, randomAgent)
+}
+
+func runAutocalibrate(options RequestOptions) int {
+	calibrationURI := options.uri
+	if !strings.HasSuffix(calibrationURI, "/") {
+		calibrationURI += "/"
+	}
+	calibrationURI += "calibration_test_123456"
+
+	statusCode, response, err := request("GET", calibrationURI, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+	if err != nil {
+		log.Printf("[!] Error during calibration request: %v\n", err)
+		return 0
+	}
+
+	// Save default response
+	defaultSc := statusCode
+	defaultCl := len(response)
+
+	fmt.Println(color.MagentaString("\n━━━━━━━━━━━━━━━ AUTO-CALIBRATION RESULTS ━━━━━━━━━━━━━━━"))
+	fmt.Printf("[✔] Calibration URI: %s\n", calibrationURI)
+	fmt.Printf("[✔] Status Code: %d\n", defaultSc)
+	fmt.Printf("[✔] Content Length: %d bytes\n", defaultCl)
+
+	return defaultCl
 }

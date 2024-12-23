@@ -27,34 +27,62 @@ type Result struct {
 }
 
 type RequestOptions struct {
-	uri        string
-	headers    []header
-	method     string
-	proxy      *url.URL
-	userAgent  string
-	redirect   bool
-	folder     string
-	bypassIP   string
-	timeout    int
-	rateLimit  bool
-	techniques []string
-	verbose    bool
-	reqHeaders []string
-	banner     bool
+	uri           string
+	headers       []header
+	method        string
+	proxy         *url.URL
+	userAgent     string
+	redirect      bool
+	folder        string
+	bypassIP      string
+	timeout       int
+	rateLimit     bool
+	techniques    []string
+	verbose       bool
+	reqHeaders    []string
+	banner        bool
+	autocalibrate bool
 }
 
 var _verbose bool
 var defaultSc int
 var defaultCl int
-var printMutex = &sync.Mutex{}
 var uniqueResults = make(map[string]bool)
+var uniqueResultsByTechnique = make(map[string]map[string]bool)
+var verbTamperingResults = make(map[string]int)
+var shownResults = make(map[string]bool)
+
+var (
+	printMutex               = &sync.Mutex{}
+	uniqueResultsMutex       = &sync.Mutex{}
+	uniqueResultsByTechMutex = &sync.Mutex{}
+	shownResultsMutex        = &sync.Mutex{}
+)
 
 // printResponse prints the results of HTTP requests in a tabular format with colored output based on the status codes.
-func printResponse(result Result) {
+func printResponse(result Result, technique string) {
 	printMutex.Lock()
 	defer printMutex.Unlock()
 
-	// Check if status code filtering is enabled
+	// Generate a key to prevent duplicates
+	key := fmt.Sprintf("%d-%d", result.statusCode, result.contentLength)
+
+	// If verbose mode is enabled, directly print the result
+	if _verbose || technique == "http-versions" {
+		printResult(result)
+		return
+	}
+
+	// Check if the result has already been displayed
+	shownResultsMutex.Lock()
+	if shownResults[key] {
+		shownResultsMutex.Unlock()
+		return
+	}
+	shownResults[key] = true
+	shownResultsMutex.Unlock()
+
+	// Filter by specific status codes if filtering is enabled
 	if len(statusCodes) > 0 {
 		statusMatch := false
 		for _, code := range statusCodes {
@@ -64,22 +92,47 @@ func printResponse(result Result) {
 			}
 		}
 		if !statusMatch {
-			return
+			return // Skip results that do not match the filtered status codes
 		}
 	}
 
-	// Check for unique output if enabled
+	// Check for unique global output if uniqueOutput is enabled
 	if uniqueOutput {
-		key := fmt.Sprintf("%d-%d", result.statusCode, result.contentLength)
-		if uniqueResults[key] {
+		globalKey := fmt.Sprintf("%d-%d-%s", result.statusCode, result.contentLength, result.line)
+
+		uniqueResultsMutex.Lock()
+		if uniqueResults[globalKey] {
+			uniqueResultsMutex.Unlock()
 			return
 		}
-		uniqueResults[key] = true
+		uniqueResults[globalKey] = true
+		uniqueResultsMutex.Unlock()
 	}
 
-	resultContentLength := strconv.Itoa(result.contentLength) + " bytes"
+	// Additional deduplication by technique
+	uniqueResultsByTechMutex.Lock()
+	if _, exists := uniqueResultsByTechnique[technique]; !exists {
+		uniqueResultsByTechnique[technique] = make(map[string]bool)
+	}
+	techniqueKey := fmt.Sprintf("%d-%s", result.contentLength, result.line)
+	if uniqueResultsByTechnique[technique][techniqueKey] {
+		uniqueResultsByTechMutex.Unlock()
+		return
+	}
+	uniqueResultsByTechnique[technique][techniqueKey] = true
+	uniqueResultsByTechMutex.Unlock()
 
+	// Print the result after all filters are applied
+	printResult(result)
+}
+
+// printResult prints the result of an HTTP request in a tabular format with colored output based on the status codes.
+func printResult(result Result) {
+	// Format the result
+	resultContentLength := strconv.Itoa(result.contentLength) + " bytes"
 	var code string
+
+	// Assign colors to HTTP status codes based on their range
 	switch result.statusCode {
 	case 200, 201, 202, 203, 204, 205, 206:
 		code = color.GreenString(strconv.Itoa(result.statusCode))
@@ -89,19 +142,15 @@ func printResponse(result Result) {
 		code = color.RedString(strconv.Itoa(result.statusCode))
 	case 500, 501, 502, 503, 504, 505, 511:
 		code = color.MagentaString(strconv.Itoa(result.statusCode))
+	default:
+		code = strconv.Itoa(result.statusCode) // No color for other codes
 	}
 
-	if !_verbose {
-		if ((defaultSc == result.statusCode) && (defaultCl == result.contentLength) || result.contentLength == 0 || result.statusCode == 404 || result.statusCode == 400) && !result.defaultReq {
-			return
-		} else {
-			fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
-		}
-	} else {
-		fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
-	}
+	// Print the result
+	fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
 }
 
+// showInfo prints the configuration options used for the scan.
 func showInfo(options RequestOptions) {
 	var statusCodeStrings []string
 
@@ -111,15 +160,9 @@ func showInfo(options RequestOptions) {
 	statusCodesString := strings.Join(statusCodeStrings, ", ")
 
 	if !nobanner {
-		fmt.Println(`
-    ________  ________  ________  ________  ________  ________  ________  ________  ________
-   ╱     ╱  ╲╱        ╲╱    ╱   ╲╱        ╲╱        ╲╱        ╲╱    ╱   ╲╱        ╲╱__      ╲
-  ╱         ╱    ╱    ╱         ╱    ╱    ╱    ╱    ╱       __╱         ╱    ╱    ╱__       ╱
- ╱         ╱         ╱         ╱         ╱        _╱       __/____     ╱         ╱         ╱
- ╲__╱_____╱╲________╱╲__╱__╱__╱╲________╱╲____╱___╱╲________╱    ╱____╱╲________╱╲________╱                                   
-	`)
+		fmt.Printf(color.MagentaString("━━━━━━━━━━━━━━ NOMORE403 CONFIGURATION ━━━━━━━━━━━━━━━━━━\n"))
 		fmt.Printf("%s \t\t%s\n", "Target:", options.uri)
-		if len(options.reqHeaders[0]) != 0 {
+		if len(options.reqHeaders) > 0 && len(options.reqHeaders[0]) != 0 {
 			for _, header := range options.headers {
 				fmt.Printf("%s \t\t%s\n", "Headers:", header)
 			}
@@ -158,7 +201,7 @@ func generateCaseCombinations(s string) []string {
 
 	firstCharCombinations := []string{string(unicode.ToLower(rune(s[0]))), string(unicode.ToUpper(rune(s[0])))}
 	subCombinations := generateCaseCombinations(s[1:])
-	combinations := []string{}
+	var combinations []string
 
 	for _, char := range firstCharCombinations {
 		for _, comb := range subCombinations {
@@ -206,11 +249,14 @@ func requestDefault(options RequestOptions) {
 	}
 
 	results = append(results, Result{options.method, statusCode, len(response), true})
-	printResponse(Result{uri, statusCode, len(response), true})
+	printResponse(Result{uri, statusCode, len(response), true}, "default")
+
+	uniqueResultsMutex.Lock()
 	for _, result := range results {
 		defaultSc = result.statusCode
 		defaultCl = result.contentLength
 	}
+	uniqueResultsMutex.Unlock()
 }
 
 // requestMethods makes HTTP requests using a list of methods from a file and prints the results.
@@ -224,18 +270,35 @@ func requestMethods(options RequestOptions) {
 	}
 
 	w := goccm.New(maxGoroutines)
+	var verbTamperingResultsMutex = &sync.Mutex{}
 
 	for _, line := range lines {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
 		go func(line string) {
+			defer w.Done()
 			statusCode, response, err := request(line, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				log.Println(err)
 			}
 
-			printResponse(Result{line, statusCode, len(response), false})
-			w.Done()
+			contentLength := len(response)
+
+			if contentLength == defaultCl {
+				return
+			}
+
+			verbTamperingResultsMutex.Lock()
+			verbTamperingResults[line] = contentLength
+			verbTamperingResultsMutex.Unlock()
+
+			result := Result{
+				line:          line,
+				statusCode:    statusCode,
+				contentLength: len(response),
+				defaultReq:    false,
+			}
+			printResponse(result, "verb-tampering")
 		}(line)
 	}
 	w.WaitAllDone()
@@ -257,16 +320,36 @@ func requestMethodsCaseSwitching(options RequestOptions) {
 		methodCombinations := generateCaseCombinations(line)
 		filteredCombinations := filterOriginalMethod(line, methodCombinations)
 		selectedCombinations := selectRandomCombinations(filteredCombinations, 50)
+
+		originalContentLength, exists := verbTamperingResults[line]
+		if !exists {
+			continue
+		}
+
 		for _, method := range selectedCombinations {
 			time.Sleep(time.Duration(delay) * time.Millisecond)
 			w.Wait()
 			go func(method string) {
+				defer w.Done()
 				statusCode, response, err := request(method, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 				if err != nil {
 					log.Println(err)
 				}
-				printResponse(Result{method, statusCode, len(response), false})
-				w.Done()
+
+				contentLength := len(response)
+
+				if contentLength == originalContentLength || contentLength == defaultCl {
+					return
+				}
+
+				result := Result{
+					line:          method,
+					statusCode:    statusCode,
+					contentLength: len(response),
+					defaultReq:    false,
+				}
+
+				printResponse(result, "verb-tampering-case")
 			}(method)
 		}
 	}
@@ -274,15 +357,18 @@ func requestMethodsCaseSwitching(options RequestOptions) {
 }
 
 // requestHeaders makes HTTP requests using a list of headers from a file and prints the results. It can also bypass IP address restrictions by specifying a bypass IP address.
+// requestHeaders makes HTTP requests using a list of headers from a file and prints the results.
+// It can also bypass IP address restrictions by specifying a bypass IP address.
 func requestHeaders(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━━━━━━━ HEADERS ━━━━━━━━━━━━━━━━━━━")
 
-	var lines []string
+	// Load headers from file
 	lines, err := parseFile(options.folder + "/headers")
 	if err != nil {
 		log.Fatalf("Error reading /headers file: %v", err)
 	}
 
+	// Load IPs for bypassing or use provided bypass IP
 	var ips []string
 	if len(options.bypassIP) != 0 {
 		ips = []string{options.bypassIP}
@@ -293,49 +379,110 @@ func requestHeaders(options RequestOptions) {
 		}
 	}
 
-	simpleheaders, err := parseFile(options.folder + "/simpleheaders")
+	// Load simple headers for additional testing
+	simpleHeaders, err := parseFile(options.folder + "/simpleheaders")
 	if err != nil {
 		log.Fatalf("Error reading /simpleheaders file: %v", err)
 	}
 
+	// Remove duplicates from lines and ips
+	lines = removeDuplicates(lines)
+	ips = removeDuplicates(ips)
+
 	w := goccm.New(maxGoroutines)
+
+	// Generate unique combinations of headers and IPs
+	uniqueCombined := make(map[string]bool)
+	var combined []struct {
+		Line string
+		IP   string
+	}
 
 	for _, ip := range ips {
 		for _, line := range lines {
-			time.Sleep(time.Duration(delay) * time.Millisecond)
-			w.Wait()
-			go func(line, ip string) {
-				headers := append(options.headers, header{line, ip})
-
-				statusCode, response, err := request(options.method, options.uri, headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
-
-				if err != nil {
-					log.Println(err)
-				}
-
-				printResponse(Result{line + ": " + ip, statusCode, len(response), false})
-				w.Done()
-			}(line, ip)
+			key := line + ":" + ip
+			if !uniqueCombined[key] {
+				uniqueCombined[key] = true
+				combined = append(combined, struct {
+					Line string
+					IP   string
+				}{Line: line, IP: ip})
+			}
 		}
 	}
 
-	for _, simpleheader := range simpleheaders {
+	// Process combined headers
+	for _, item := range combined {
+		time.Sleep(time.Duration(delay) * time.Millisecond)
+		w.Wait()
+		go func(item struct {
+			Line string
+			IP   string
+		}) {
+			defer w.Done()
+
+			// Add headers to the request
+			headers := append(options.headers, header{item.Line, item.IP})
+
+			statusCode, response, err := request(options.method, options.uri, headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			result := Result{
+				line:          item.Line + ": " + item.IP,
+				statusCode:    statusCode,
+				contentLength: len(response),
+				defaultReq:    false,
+			}
+			printResponse(result, "headers")
+		}(item)
+	}
+
+	// Process simple headers
+	for _, simpleHeader := range simpleHeaders {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
 		go func(line string) {
-			x := strings.Split(line, " ")
-			headers := append(options.headers, header{x[0], x[1]})
+			defer w.Done()
 
-			statusCode, response, err := request(options.method, options.uri, headers, options.proxy, rateLimit, options.timeout, redirect)
+			parts := strings.Split(line, " ")
+			if len(parts) < 2 {
+				log.Printf("Invalid simple header format: %s\n", line)
+				return
+			}
+			headers := append(options.headers, header{parts[0], parts[1]})
+
+			statusCode, response, err := request(options.method, options.uri, headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				log.Println(err)
+				return
 			}
 
-			printResponse(Result{line, statusCode, len(response), false})
-			w.Done()
-		}(simpleheader)
+			result := Result{
+				line:          line,
+				statusCode:    statusCode,
+				contentLength: len(response),
+				defaultReq:    false,
+			}
+			printResponse(result, "headers")
+		}(simpleHeader)
 	}
 	w.WaitAllDone()
+}
+
+// Helper function to remove duplicates from a slice
+func removeDuplicates(input []string) []string {
+	uniqueMap := make(map[string]bool)
+	var result []string
+	for _, item := range input {
+		if _, exists := uniqueMap[item]; !exists {
+			uniqueMap[item] = true
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 // requestEndPaths makes HTTP requests using a list of custom end paths from a file and prints the results.
@@ -354,13 +501,27 @@ func requestEndPaths(options RequestOptions) {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
 		go func(line string) {
+			defer w.Done()
+
 			statusCode, response, err := request(options.method, options.uri+line, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				log.Println(err)
 			}
 
-			printResponse(Result{uri + line, statusCode, len(response), false})
-			w.Done()
+			contentLength := len(response)
+
+			if contentLength == defaultCl {
+				return
+			}
+
+			result := Result{
+				line:          options.uri + line,
+				statusCode:    statusCode,
+				contentLength: len(response),
+				defaultReq:    false,
+			}
+
+			printResponse(result, "endpaths")
 		}(line)
 	}
 
@@ -374,7 +535,6 @@ func requestMidPaths(options RequestOptions) {
 	if err != nil {
 		log.Fatalf("Error reading custom paths file: %v", err)
 	}
-	// fmt.Println(options.uri, "ádkohasdjkhasdjklohans")
 	x := strings.Split(options.uri, "/")
 	var uripath string
 
@@ -398,6 +558,8 @@ func requestMidPaths(options RequestOptions) {
 			time.Sleep(time.Duration(delay) * time.Millisecond)
 			w.Wait()
 			go func(line string) {
+				defer w.Done()
+
 				var fullpath string
 				if options.uri[len(options.uri)-1:] == "/" {
 					fullpath = baseuri + line + uripath + "/"
@@ -410,36 +572,85 @@ func requestMidPaths(options RequestOptions) {
 					log.Println(err)
 				}
 
-				printResponse(Result{fullpath, statusCode, len(response), false})
-				w.Done()
+				contentLength := len(response)
+
+				if contentLength == defaultCl {
+					return
+				}
+
+				result := Result{
+					line:          fullpath,
+					statusCode:    statusCode,
+					contentLength: len(response),
+					defaultReq:    false,
+				}
+				printResponse(result, "midpaths")
 			}(line)
 		}
 		w.WaitAllDone()
 	}
 }
 
-// requestHttpVersions makes HTTP requests using a list of HTTP versions from a file and prints the results. If server responds with an unique version it is because is not accepting the version provided.
+// requestDoubleEncoding makes HTTP requests doing a double URL encode of the path
+func requestDoubleEncoding(options RequestOptions) {
+	color.Cyan("\n━━━━━━━━━━━━━━━ DOUBLE-ENCODING ━━━━━━━━━━━━━━")
+
+	parsedURL, err := rawurlparser.RawURLParse(options.uri)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	uripath := strings.Trim(parsedURL.Path, "/")
+
+	if len(uripath) == 0 {
+		log.Println("No path to modify")
+		return
+	}
+
+	encodedPath := url.QueryEscape(url.QueryEscape(uripath))
+	encodedUri := parsedURL.Scheme + "://" + parsedURL.Host + "/" + encodedPath
+
+	w := goccm.New(maxGoroutines)
+	w.Wait()
+	go func(encodedUri string) {
+		defer w.Done()
+		statusCode, response, err := request(options.method, encodedUri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+		if err != nil {
+			log.Println(err)
+		}
+
+		result := Result{
+			line:          encodedUri,
+			statusCode:    statusCode,
+			contentLength: len(response),
+			defaultReq:    false,
+		}
+		printResponse(result, "double-encoding")
+	}(encodedUri)
+
+	w.WaitAllDone()
+}
+
+// requestHttpVersions makes HTTP requests using a list of HTTP versions from a file and prints the results. If server responds with a unique version it is because is not accepting the version provided.
 func requestHttpVersions(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━━━━ HTTP VERSIONS ━━━━━━━━━━━━━━━━")
 
-	httpVersions := []string{"--http1.0", "--http1.1", "--http2"}
+	httpVersions := []string{"--http1.0"}
 
 	for _, version := range httpVersions {
-		headerStrings := make([]string, len(options.headers))
-		for i, h := range options.headers {
-			headerStrings[i] = h.key + ": " + h.value
-		}
-		res := curlRequest(options.uri, headerStrings, options.proxy.Host, version)
-		printResponse(res)
+		res := curlRequest(options.uri, options.proxy.Host, version)
+		printResponse(res, "http-versions")
 	}
 
 }
 
-func curlRequest(url string, headers []string, proxy string, httpVersion string) Result {
+func curlRequest(url string, proxy string, httpVersion string) Result {
 	args := []string{"-i", "-s", httpVersion}
-	for _, header := range headers {
-		args = append(args, "-H", header)
-	}
+	args = append(args, "-H", "User-Agent:")
+	args = append(args, "-H", "Accept:")
+	args = append(args, "-H", "Connection:")
+	args = append(args, "-H", "Host:")
 	if proxy != "" {
 		args = append(args, "-x", proxy)
 	}
@@ -449,10 +660,10 @@ func curlRequest(url string, headers []string, proxy string, httpVersion string)
 	args = append(args, "--insecure")
 	args = append(args, url)
 	cmd := exec.Command("curl", args...)
-	// fmt.Println(cmd.String())
 	out, err := cmd.Output()
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Curl command failed: %v\n", err)
+		return Result{}
 	}
 
 	return parseCurlOutput(string(out), httpVersion)
@@ -461,21 +672,53 @@ func curlRequest(url string, headers []string, proxy string, httpVersion string)
 func parseCurlOutput(output string, httpVersion string) Result {
 	httpVersionOutput := strings.ReplaceAll(httpVersion, "--http", "HTTP/")
 
-	// Split by two line breaks to separate proxy and server responses
 	responses := strings.Split(output, "\r\n\r\n")
 
-	// If there is more than one answer, take the last one, which is the one from the server
-	serverResponse := responses[len(responses)-2]
+	var proxyResponse, serverResponse string
+
+	for _, response := range responses {
+		if strings.Contains(response, "Connection established") {
+			proxyResponse = response
+		} else if strings.HasPrefix(response, "HTTP/") {
+			serverResponse = response
+		}
+	}
+
+	if serverResponse == "" {
+		log.Println("No valid HTTP server response found")
+		return Result{}
+	}
+
+	totalResponseSize := len(output)
+
+	if proxyResponse != "" {
+		totalResponseSize -= len(proxyResponse) + len("\r\n\r\n")
+	}
 
 	lines := strings.SplitN(serverResponse, "\n", 2)
+	if len(lines) < 1 {
+		log.Println("Invalid server response format:", serverResponse)
+		return Result{}
+	}
+
 	parts := strings.SplitN(lines[0], " ", 3)
+	if len(parts) < 2 || !strings.HasPrefix(parts[0], "HTTP/") {
+		log.Println("Invalid status line:", lines[0])
+		return Result{}
+	}
 
 	statusCode, err := strconv.Atoi(parts[1])
 	if err != nil {
-		log.Println(err)
+		log.Printf("Error parsing status code: %v\n", err)
 		return Result{}
 	}
-	return Result{httpVersionOutput, statusCode, len(output), false}
+
+	return Result{
+		line:          httpVersionOutput,
+		statusCode:    statusCode,
+		contentLength: totalResponseSize,
+		defaultReq:    false,
+	}
 }
 
 // requestPathCaseSwitching makes HTTP requests by capitalizing each letter in the last part of the URI and try to use URL encoded characters.
@@ -484,8 +727,8 @@ func requestPathCaseSwitching(options RequestOptions) {
 
 	parsedURL, err := rawurlparser.RawURLParse(options.uri)
 	if err != nil {
-	 	log.Println(err)
-	 	return
+		log.Println(err)
+		return
 	}
 
 	baseuri := parsedURL.Scheme + "://" + parsedURL.Host
@@ -504,6 +747,8 @@ func requestPathCaseSwitching(options RequestOptions) {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
 		go func(path string) {
+			defer w.Done()
+
 			var fullpath string
 			if strings.HasSuffix(options.uri, "/") {
 				fullpath = baseuri + "/" + path + "/"
@@ -516,8 +761,14 @@ func requestPathCaseSwitching(options RequestOptions) {
 				log.Println(err)
 			}
 
-			printResponse(Result{fullpath, statusCode, len(response), false})
-			w.Done()
+			result := Result{
+				line:          fullpath,
+				statusCode:    statusCode,
+				contentLength: len(response),
+				defaultReq:    false,
+			}
+
+			printResponse(result, "path-case-switching")
 		}(path)
 	}
 
@@ -525,6 +776,8 @@ func requestPathCaseSwitching(options RequestOptions) {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
 		go func(z rune) {
+			defer w.Done()
+
 			encodedChar := fmt.Sprintf("%%%X", z) // convert rune to its hexadecimal ASCII value
 			newpath := strings.Replace(uripath, string(z), encodedChar, 1)
 
@@ -540,11 +793,9 @@ func requestPathCaseSwitching(options RequestOptions) {
 				log.Println(err)
 			}
 
-			printResponse(Result{fullpath, statusCode, len(response), false})
-			w.Done()
+			printResponse(Result{fullpath, statusCode, len(response), false}, "path-case-switching")
 		}(z)
 	}
-
 	w.WaitAllDone()
 }
 
@@ -554,7 +805,12 @@ func randomLine(filePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+
+		}
+	}(file)
 
 	var lines []string
 	scanner := bufio.NewScanner(file)
@@ -576,15 +832,16 @@ func randomLine(filePath string) (string, error) {
 
 // requester is the main function that runs all the tests.
 func requester(uri string, proxy string, userAgent string, reqHeaders []string, bypassIP string, folder string, method string, verbose bool, techniques []string, banner bool, rateLimit bool, timeout int, redirect bool, randomAgent bool) {
-
 	// Set up proxy if provided.
 	if len(proxy) != 0 {
 		if !strings.Contains(proxy, "http") {
 			proxy = "http://" + proxy
 		}
-		color.Magenta("\n[*] USING PROXY: %s\n", proxy)
 	}
-	userProxy, _ := url.Parse(proxy)
+	userProxy, err := url.Parse(proxy)
+	if err != nil {
+		log.Fatalf("Error parsing proxy URL: %v", err)
+	}
 
 	// Check if URI has trailing slash, if not add it.
 	x := strings.Split(uri, "/")
@@ -616,7 +873,7 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 	}
 
 	// Parse custom headers from CLI arguments and add them to the headers slice.
-	if len(reqHeaders[0]) != 0 {
+	if len(reqHeaders) > 0 && reqHeaders[0] != "" {
 		for _, _header := range reqHeaders {
 			headerSplit := strings.Split(_header, ":")
 			headers = append(headers, header{headerSplit[0], strings.Join(headerSplit[1:], "")})
@@ -626,27 +883,55 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 	_verbose = verbose
 
 	options := RequestOptions{
-		uri:        uri,
-		headers:    headers,
-		method:     method,
-		proxy:      userProxy,
-		userAgent:  userAgent,
-		redirect:   redirect,
-		folder:     folder,
-		bypassIP:   bypassIP,
-		timeout:    timeout,
-		rateLimit:  rateLimit,
-		verbose:    verbose,
-		techniques: techniques,
-		reqHeaders: reqHeaders,
-		banner:     banner,
+		uri:           uri,
+		headers:       headers,
+		method:        method,
+		proxy:         userProxy,
+		userAgent:     userAgent,
+		redirect:      redirect,
+		folder:        folder,
+		bypassIP:      bypassIP,
+		timeout:       timeout,
+		rateLimit:     rateLimit,
+		verbose:       verbose,
+		techniques:    techniques,
+		reqHeaders:    reqHeaders,
+		banner:        banner,
+		autocalibrate: !verbose,
 	}
 
 	// Reset uniqueResults map before starting new requests
-	uniqueResults = make(map[string]bool)
+	shownResultsMutex.Lock()
+	for k := range shownResults {
+		delete(shownResults, k)
+	}
+	shownResultsMutex.Unlock()
+
+	uniqueResultsMutex.Lock()
+	for k := range uniqueResults {
+		delete(uniqueResults, k)
+	}
+	uniqueResultsMutex.Unlock()
+
+	uniqueResultsByTechMutex.Lock()
+	for k := range uniqueResultsByTechnique {
+		delete(uniqueResultsByTechnique, k)
+	}
+	uniqueResultsByTechMutex.Unlock()
+
+	if maxGoroutines > 100 {
+		log.Printf("Warning: High number of goroutines (%d) may cause resource exhaustion.", maxGoroutines)
+	}
 
 	// Call each function that will send HTTP requests with different variations of headers and URLs.
 	showInfo(options)
+
+	// Auto-calibrate
+	if options.autocalibrate {
+		defaultCl = runAutocalibrate(options)
+	}
+
+	requestDefault(options)
 
 	for _, tech := range techniques {
 		switch tech {
@@ -660,13 +945,15 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 			requestEndPaths(options)
 		case "midpaths":
 			requestMidPaths(options)
+		case "double-encoding":
+			requestDoubleEncoding(options)
 		case "http-versions":
 			requestHttpVersions(options)
 		case "path-case":
 			requestPathCaseSwitching(options)
 		default:
 			fmt.Printf("Unrecognized technique. %s\n", tech)
-			fmt.Print("Available techniques: verbs, verbs-case, headers, endpaths, midpaths, http-versions, path-case\n")
+			fmt.Print("Available techniques: verbs, verbs-case, headers, endpaths, midpaths, double-encoding, http-versions, path-case\n")
 		}
 	}
 }
