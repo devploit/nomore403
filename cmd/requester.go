@@ -378,7 +378,7 @@ func requestMidPaths(options RequestOptions) {
 	x := strings.Split(options.uri, "/")
 	var uripath string
 
-	parsedURL := rawurlparser.RawURLParse(options.uri)
+	parsedURL, err := rawurlparser.RawURLParse(options.uri)
 	if err != nil {
 		log.Println(err)
 	}
@@ -482,11 +482,11 @@ func parseCurlOutput(output string, httpVersion string) Result {
 func requestPathCaseSwitching(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━ PATH CASE SWITCHING ━━━━━━━━━━━━━")
 
-	parsedURL := rawurlparser.RawURLParse(options.uri)
-	// if err != nil {
-	// 	log.Println(err)
-	// 	return
-	// }
+	parsedURL, err := rawurlparser.RawURLParse(options.uri)
+	if err != nil {
+	 	log.Println(err)
+	 	return
+	}
 
 	baseuri := parsedURL.Scheme + "://" + parsedURL.Host
 	uripath := strings.Trim(parsedURL.Path, "/")
