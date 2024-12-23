@@ -84,7 +84,10 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 	}
 
 	// Use  raw URL parser instead
-	parsedURL := rawurlparser.RawURLParse(uri)
+	parsedURL, err := rawurlparser.RawURLParse(uri)
+	if err != nil {
+		log.Println(err)
+	}
 
 	// Create new request
 	req := &http.Request{
