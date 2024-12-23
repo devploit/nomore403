@@ -8,6 +8,7 @@ require (
 	github.com/spf13/cobra v1.5.0
 	github.com/spf13/viper v1.13.0
 	github.com/zenthangplus/goccm v1.1.2
+	github.com/slicingmelon/go-rawurlparser v0.2.8
 )
 
 require (
