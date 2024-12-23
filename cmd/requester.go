@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/fatih/color"
+	"github.com/slicingmelon/go-rawurlparser"
 	"github.com/zenthangplus/goccm"
 )
 
@@ -377,7 +378,7 @@ func requestMidPaths(options RequestOptions) {
 	x := strings.Split(options.uri, "/")
 	var uripath string
 
-	parsedURL, err := url.Parse(options.uri)
+	parsedURL := rawurlparser.RawURLParse(options.uri)
 	if err != nil {
 		log.Println(err)
 	}
@@ -481,11 +482,11 @@ func parseCurlOutput(output string, httpVersion string) Result {
 func requestPathCaseSwitching(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━ PATH CASE SWITCHING ━━━━━━━━━━━━━")
 
-	parsedURL, err := url.Parse(options.uri)
-	if err != nil {
-		log.Println(err)
-		return
-	}
+	parsedURL := rawurlparser.RawURLParse(options.uri)
+	// if err != nil {
+	// 	log.Println(err)
+	// 	return
+	// }
 
 	baseuri := parsedURL.Scheme + "://" + parsedURL.Host
 	uripath := strings.Trim(parsedURL.Path, "/")

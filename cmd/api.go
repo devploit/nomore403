@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/slicingmelon/go-rawurlparser"
 )
 
 // parseFile reads a file given its filename and returns a list containing each of its lines.
@@ -46,7 +48,6 @@ type header struct {
 }
 
 // request makes an HTTP request using headers `headers` and proxy `proxy`.
-//
 // If `method` is empty, it defaults to "GET".
 func request(method, uri string, headers []header, proxy *url.URL, rateLimit bool, timeout int, redirect bool) (int, []byte, error) {
 	if method == "" {
@@ -57,21 +58,23 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 		proxy = nil
 	}
 
-	client := &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyURL(proxy),
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-			DialContext: (&net.Dialer{
-				Timeout:   time.Duration(timeout) / 1000 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
+	customTransport := &http.Transport{
+		Proxy: http.ProxyURL(proxy),
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
 		},
+		DialContext: (&net.Dialer{
+			Timeout:   time.Duration(timeout) / 1000 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	client := &http.Client{
+		Transport: customTransport,
 	}
 
 	if !redirect {
@@ -80,11 +83,30 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 		}
 	}
 
-	req, err := http.NewRequest(method, uri, nil)
-	if err != nil {
-		return 0, nil, nil
+	// Use  raw URL parser instead
+	parsedURL := rawurlparser.RawURLParse(uri)
+
+	// Create new request
+	req := &http.Request{
+		Method: method,
+		URL: &url.URL{
+			Scheme: parsedURL.Scheme,
+			Host:   parsedURL.Host,
+			Opaque: parsedURL.Path, // Use Opaque to prevent path normalization
+		},
+		Header: make(http.Header),
+		Close:  true,
 	}
-	req.Close = true
+
+	//log.Printf("Debug - Raw URL parsed: %s", uri)
+	// Don't use URL.String() for debugging, as it will perform encodings and normalization
+	// log.Printf("Debug - Request Components - Scheme: %s, Host: %s, Path: %s, RawPath: %s, Opaque: %s",
+	// 	req.URL.Scheme,
+	// 	req.URL.Host,
+	// 	req.URL.Path,
+	// 	req.URL.RawPath,
+	// 	req.URL.Opaque,
+	// )
 
 	for _, header := range headers {
 		req.Header.Add(header.key, header.value)
