@@ -24,3 +24,6 @@ nomore403.exe
 
 # Idea
 .idea/*
+
+# MacOS
+.DS_Store
