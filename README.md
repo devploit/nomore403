@@ -15,7 +15,7 @@
 ## Prerequisites
 
 Before you install and run `nomore403`, make sure you have the following:
-- Go 1.15 or higher installed on your machine.
+- Go 1.19 or higher installed on your machine.
 
 ## Installation
 
