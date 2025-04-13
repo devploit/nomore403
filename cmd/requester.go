@@ -15,7 +15,6 @@ import (
 	"unicode"
 
 	"github.com/fatih/color"
-	"github.com/slicingmelon/go-rawurlparser"
 	"github.com/zenthangplus/goccm"
 )
 
@@ -503,7 +502,7 @@ func requestEndPaths(options RequestOptions) {
 		go func(line string) {
 			defer w.Done()
 
-			statusCode, response, err := request(options.method, options.uri+line, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, response, err := request(options.method, joinURL(options.uri, line), options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				log.Println(err)
 			}
@@ -515,7 +514,7 @@ func requestEndPaths(options RequestOptions) {
 			}
 
 			result := Result{
-				line:          options.uri + line,
+				line:          joinURL(options.uri, line),
 				statusCode:    statusCode,
 				contentLength: len(response),
 				defaultReq:    false,
@@ -538,7 +537,7 @@ func requestMidPaths(options RequestOptions) {
 	x := strings.Split(options.uri, "/")
 	var uripath string
 
-	parsedURL, err := rawurlparser.RawURLParse(options.uri)
+	parsedURL, err := url.Parse(options.uri)
 	if err != nil {
 		log.Println(err)
 	}
@@ -595,7 +594,7 @@ func requestMidPaths(options RequestOptions) {
 func requestDoubleEncoding(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━━━━ DOUBLE-ENCODING ━━━━━━━━━━━━━━")
 
-	parsedURL, err := rawurlparser.RawURLParse(options.uri)
+	parsedURL, err := url.Parse(options.uri)
 	if err != nil {
 		log.Println(err)
 		return
@@ -725,7 +724,7 @@ func parseCurlOutput(output string, httpVersion string) Result {
 func requestPathCaseSwitching(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━ PATH CASE SWITCHING ━━━━━━━━━━━━━")
 
-	parsedURL, err := rawurlparser.RawURLParse(options.uri)
+	parsedURL, err := url.Parse(options.uri)
 	if err != nil {
 		log.Println(err)
 		return
@@ -828,6 +827,17 @@ func randomLine(filePath string) (string, error) {
 	randomLine := lines[rand.Intn(len(lines))]
 
 	return randomLine, nil
+}
+
+// joinURL safely joins a base URL and a path, preserving slashes
+func joinURL(base string, path string) string {
+	if !strings.HasSuffix(base, "/") && !strings.HasPrefix(path, "/") {
+		return base + "/" + path
+	}
+	if strings.HasSuffix(base, "/") && strings.HasPrefix(path, "/") {
+		return base + path[1:]
+	}
+	return base + path
 }
 
 // requester is the main function that runs all the tests.

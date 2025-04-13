@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
-	"github.com/fatih/color"
-	"github.com/slicingmelon/go-rawurlparser"
 	"io"
 	"log"
 	"net"
@@ -15,6 +13,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/fatih/color"
 )
 
 // parseFile reads a file given its filename and returns a list containing each of its lines.
@@ -85,19 +85,17 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 	}
 
 	// Use  raw URL parser instead
-	parsedURL, err := rawurlparser.RawURLParse(uri)
+	parsedURL, err := url.Parse(uri)
 	if err != nil {
 		log.Println(err)
 	}
 
-	// Create new request
+	parsedURL.RawPath = parsedURL.Path
+
 	req := &http.Request{
 		Method: method,
-		URL: &url.URL{
-			Scheme: parsedURL.Scheme,
-			Host:   parsedURL.Host,
-			Opaque: parsedURL.Path,
-		},
+		Host:   parsedURL.Host,
+		URL:    parsedURL,
 		Header: make(http.Header),
 		Close:  true,
 	}
