@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://i.imgur.com/NtlwDVT.png" width="600" height="200">
+  <img src="https://i.imgur.com/NtlwDVT.png" width="600" height="200" alt="logo">
 </p>
 
 <h1 align="center">NoMore403</h1>

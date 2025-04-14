@@ -164,7 +164,7 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, tec
 	}
 	httpMethod := req.Method
 	// Assign the extracted values to the corresponding flag variables
-	requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, technique, nobanner, rateLimit, timeout, redirect, randomAgent)
+	requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, techniques, nobanner, rateLimit, timeout, redirect, randomAgent)
 }
 
 func runAutocalibrate(options RequestOptions) int {
