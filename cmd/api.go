@@ -90,7 +90,7 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 		log.Println(err)
 	}
 
-	parsedURL.RawPath = parsedURL.Path
+	parsedURL.RawPath = parsedURL.EscapedPath()
 
 	req := &http.Request{
 		Method: method,
