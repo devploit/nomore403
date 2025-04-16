@@ -355,9 +355,7 @@ func requestMethodsCaseSwitching(options RequestOptions) {
 	w.WaitAllDone()
 }
 
-// requestHeaders makes HTTP requests using a list of headers from a file and prints the results. It can also bypass IP address restrictions by specifying a bypass IP address.
 // requestHeaders makes HTTP requests using a list of headers from a file and prints the results.
-// It can also bypass IP address restrictions by specifying a bypass IP address.
 func requestHeaders(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━━━━━━━ HEADERS ━━━━━━━━━━━━━━━━━━━")
 
@@ -600,33 +598,48 @@ func requestDoubleEncoding(options RequestOptions) {
 		return
 	}
 
-	uripath := strings.Trim(parsedURL.Path, "/")
-
-	if len(uripath) == 0 {
+	originalPath := parsedURL.Path
+	if len(originalPath) == 0 || originalPath == "/" {
 		log.Println("No path to modify")
 		return
 	}
 
-	encodedPath := url.QueryEscape(url.QueryEscape(uripath))
-	encodedUri := parsedURL.Scheme + "://" + parsedURL.Host + "/" + encodedPath
-
 	w := goccm.New(maxGoroutines)
-	w.Wait()
-	go func(encodedUri string) {
-		defer w.Done()
-		statusCode, response, err := request(options.method, encodedUri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
-		if err != nil {
-			log.Println(err)
+
+	for i, c := range originalPath {
+		if c == '/' {
+			continue
 		}
 
-		result := Result{
-			line:          encodedUri,
-			statusCode:    statusCode,
-			contentLength: len(response),
-			defaultReq:    false,
-		}
-		printResponse(result, "double-encoding")
-	}(encodedUri)
+		singleEncoded := fmt.Sprintf("%%%X", c)
+		doubleEncoded := url.QueryEscape(singleEncoded)
+
+		modifiedPath := []rune(originalPath)
+		modifiedPath[i] = []rune(doubleEncoded)[0]
+		modifiedPathStr := originalPath[:i] + doubleEncoded + originalPath[i+1:]
+
+		encodedUri := fmt.Sprintf("%s://%s%s", parsedURL.Scheme, parsedURL.Host, modifiedPathStr)
+
+		time.Sleep(time.Duration(delay) * time.Millisecond)
+		w.Wait()
+		go func(encodedUri string, modifiedChar rune) {
+			defer w.Done()
+
+			statusCode, response, err := request(options.method, encodedUri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			result := Result{
+				line:          fmt.Sprintf("%s", encodedUri),
+				statusCode:    statusCode,
+				contentLength: len(response),
+				defaultReq:    false,
+			}
+			printResponse(result, "double-encoding")
+		}(encodedUri, c)
+	}
 
 	w.WaitAllDone()
 }
@@ -739,7 +752,7 @@ func requestPathCaseSwitching(options RequestOptions) {
 	}
 
 	pathCombinations := generateCaseCombinations(uripath)
-	selectedPaths := selectRandomCombinations(pathCombinations, 60)
+	selectedPaths := selectRandomCombinations(pathCombinations, 20)
 	w := goccm.New(maxGoroutines)
 
 	for _, path := range selectedPaths {
@@ -771,30 +784,6 @@ func requestPathCaseSwitching(options RequestOptions) {
 		}(path)
 	}
 
-	for _, z := range uripath {
-		time.Sleep(time.Duration(delay) * time.Millisecond)
-		w.Wait()
-		go func(z rune) {
-			defer w.Done()
-
-			encodedChar := fmt.Sprintf("%%%X", z) // convert rune to its hexadecimal ASCII value
-			newpath := strings.Replace(uripath, string(z), encodedChar, 1)
-
-			var fullpath string
-			if options.uri[len(options.uri)-1:] == "/" {
-				fullpath = baseuri + "/" + newpath + "/"
-			} else {
-				fullpath = baseuri + "/" + newpath
-			}
-
-			statusCode, response, err := request(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
-			if err != nil {
-				log.Println(err)
-			}
-
-			printResponse(Result{fullpath, statusCode, len(response), false}, "path-case-switching")
-		}(z)
-	}
 	w.WaitAllDone()
 }
 
