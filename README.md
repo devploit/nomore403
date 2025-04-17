@@ -63,13 +63,23 @@ Before you install and run `nomore403`, make sure you have the following:
 
 Grab the latest release for your OS from our [Releases](https://github.com/devploit/nomore403/releases) page.
 
-### From Go install)
+### From Go install
 
 You can install nomore403 directly with Go:
 
 ```bash
 go install github.com/devploit/nomore403@latest
 ```
+
+**Important**: When installing via `go install`, the payloads folder will not be included. You'll need to download it separately from the repository:
+
+> ```bash
+> # After installing with go install
+> git clone --depth 1 https://github.com/devploit/nomore403.git
+> cp -r nomore403/payloads /path/to/your/preferred/location
+> # Then use nomore403 with -f flag
+> nomore403 -u https://domain.com/admin -f /path/to/your/preferred/location/payloads
+> ```
 
 ### Compile from Source
 
