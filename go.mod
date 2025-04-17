@@ -1,4 +1,4 @@
-module nomore403
+module github.com/devploit/nomore403
 
 go 1.24
 

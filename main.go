@@ -16,7 +16,7 @@ limitations under the License.
 
 package main
 
-import "nomore403/cmd"
+import "github.com/devploit/nomore403/cmd"
 
 func main() {
 	cmd.Execute()

@@ -63,6 +63,14 @@ Before you install and run `nomore403`, make sure you have the following:
 
 Grab the latest release for your OS from our [Releases](https://github.com/devploit/nomore403/releases) page.
 
+### From Go install)
+
+You can install nomore403 directly with Go:
+
+```bash
+go install github.com/devploit/nomore403@latest
+```
+
 ### Compile from Source
 
 If you prefer to compile the tool yourself:
