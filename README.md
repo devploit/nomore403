@@ -5,7 +5,12 @@
 <h1 align="center">NoMore403</h1>
 
 <p align="center">
-  <a href="https://github.com/devploit/nomore403/issues"><img alt="contributions welcome" src="https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat"></a>
+  <a href="https://github.com/devploit/nomore403/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/devploit/nomore403?style=flat&logo=github"></a>
+  <a href="https://github.com/devploit/nomore403/forks"><img alt="GitHub forks" src="https://img.shields.io/github/forks/devploit/nomore403?style=flat&logo=github"></a>
+  <a href="https://goreportcard.com/report/github.com/devploit/nomore403"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/devploit/nomore403"></a>
+  <img alt="Go version" src="https://img.shields.io/badge/go-1.24-blue">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green">
+  <img alt="Contributions welcome" src="https://img.shields.io/badge/contributions-welcome-brightgreen.svg">
 </p>
 
 ## Table of Contents
@@ -50,7 +55,7 @@
 ## Prerequisites
 
 Before you install and run `nomore403`, make sure you have the following:
-- Go 1.19 or higher installed on your machine.
+- Go 1.24 or higher installed on your machine.
 
 ## Installation
 
