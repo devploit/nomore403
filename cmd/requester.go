@@ -822,8 +822,8 @@ func joinURL(base string, path string) string {
 	return base + path
 }
 
-// requester is the main function that runs all the tests.
-func requester(uri string, proxy string, userAgent string, reqHeaders []string, bypassIP string, folder string, method string, verbose bool, techniques []string, banner bool, rateLimit bool, timeout int, redirect bool, randomAgent bool) {
+// setupRequestOptions configures and returns RequestOptions based on the provided parameters.
+func setupRequestOptions(uri, proxy, userAgent string, reqHeaders []string, bypassIP, folder, method string, verbose bool, techniques []string, banner, rateLimit bool, timeout int, redirect, randomAgent bool) RequestOptions {
 	// Set up proxy if provided.
 	if len(proxy) != 0 {
 		if !strings.Contains(proxy, "http") {
@@ -850,7 +850,7 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 		line, err := randomLine(folder + "/useragents")
 		if err != nil {
 			fmt.Println("Error reading the file:", err)
-			return
+			return RequestOptions{}
 		}
 		userAgent = line
 	}
@@ -872,9 +872,7 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 		}
 	}
 
-	_verbose = verbose
-
-	options := RequestOptions{
+	return RequestOptions{
 		uri:           uri,
 		headers:       headers,
 		method:        method,
@@ -891,8 +889,10 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 		banner:        banner,
 		autocalibrate: !verbose,
 	}
+}
 
-	// Reset uniqueResults map before starting new requests
+// resetMaps clears all result tracking maps before starting new requests.
+func resetMaps() {
 	shownResultsMutex.Lock()
 	for k := range shownResults {
 		delete(shownResults, k)
@@ -910,22 +910,11 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 		delete(uniqueResultsByTechnique, k)
 	}
 	uniqueResultsByTechMutex.Unlock()
+}
 
-	if maxGoroutines > 100 {
-		log.Printf("Warning: High number of goroutines (%d) may cause resource exhaustion.", maxGoroutines)
-	}
-
-	// Call each function that will send HTTP requests with different variations of headers and URLs.
-	showInfo(options)
-
-	// Auto-calibrate
-	if options.autocalibrate {
-		defaultCl = runAutocalibrate(options)
-	}
-
-	requestDefault(options)
-
-	for _, tech := range techniques {
+// executeTechniques runs the selected bypass techniques based on the provided options.
+func executeTechniques(options RequestOptions) {
+	for _, tech := range options.techniques {
 		switch tech {
 		case "verbs":
 			requestMethods(options)
@@ -948,4 +937,28 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 			fmt.Print("Available techniques: verbs, verbs-case, headers, endpaths, midpaths, double-encoding, http-versions, path-case\n")
 		}
 	}
+}
+
+// requester is the main function that runs all the tests.
+func requester(uri string, proxy string, userAgent string, reqHeaders []string, bypassIP string, folder string, method string, verbose bool, techniques []string, banner bool, rateLimit bool, timeout int, redirect bool, randomAgent bool) {
+	_verbose = verbose
+
+	options := setupRequestOptions(uri, proxy, userAgent, reqHeaders, bypassIP, folder, method, verbose, techniques, banner, rateLimit, timeout, redirect, randomAgent)
+
+	resetMaps()
+
+	if maxGoroutines > 100 {
+		log.Printf("Warning: High number of goroutines (%d) may cause resource exhaustion.", maxGoroutines)
+	}
+
+	// Display configuration and perform auto-calibration
+	showInfo(options)
+
+	// Auto-calibrate
+	if options.autocalibrate {
+		defaultCl = runAutocalibrate(options)
+	}
+
+	requestDefault(options)
+	executeTechniques(options)
 }
