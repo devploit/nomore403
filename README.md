@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://i.imgur.com/NtlwDVT.png" width="600" height="200" alt="logo">
+  <img src="https://i.imgur.com/F4D1zhr.png" width="350" height="200" alt="logo">
 </p>
 
 <h1 align="center">NoMore403</h1>
@@ -8,9 +8,44 @@
   <a href="https://github.com/devploit/nomore403/issues"><img alt="contributions welcome" src="https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat"></a>
 </p>
 
+## Table of Contents
+- [Introduction](#introduction)
+- [Features](#features)
+- [Implemented Bypass Techniques](#implemented-bypass-techniques)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [How It Works](#how-it-works)
+- [Customization](#customization)
+- [Usage](#usage)
+- [Options](#options)
+- [Common Use Cases](#common-use-cases)
+- [Contributing](#contributing)
+- [Security Considerations](#security-considerations)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
+- [Contact](#contact)
+
 ## Introduction
 
 `nomore403` is an innovative tool designed to help cybersecurity professionals and enthusiasts bypass HTTP 40X errors encountered during web security assessments. Unlike other solutions, `nomore403` automates various techniques to seamlessly navigate past these access restrictions, offering a broad range of strategies from header manipulation to method tampering.
+
+## Features
+
+- **Auto-calibration**: Automatically detects server base responses to identify successful bypasses
+- **Multiple bypass techniques**: Implements 8 different techniques to bypass restrictions
+- **High concurrency**: Uses goroutines for fast and efficient testing
+- **Customizable**: Easily add new payloads and techniques
+
+## Implemented Bypass Techniques
+
+- **Verb Tampering**: Tests different HTTP methods to access protected resources
+- **Verb Case Switching**: Manipulates HTTP method capitalization to detect incorrect implementations
+- **Headers**: Injects headers designed for bypassing like X-Forwarded-For, X-Original-URL, etc.
+- **Custom Paths**: Tests alternative paths that can bypass access restrictions
+- **Path Traversal (midpaths)**: Inserts patterns in the middle of paths to confuse parsers
+- **Double-Encoding**: Uses double URL encoding to evade filters
+- **HTTP Versions**: Tests different HTTP versions (1.0, 1.1) to identify inconsistent behaviors
+- **Path Case Switching**: Manipulates uppercase/lowercase in paths to detect case-sensitive configurations
 
 ## Prerequisites
 
@@ -34,9 +69,26 @@ go get
 go build
 ```
 
+## How It Works
+
+1. **Auto-calibration**: The tool makes a request to a non-existent path to determine the base response
+2. **Default request**: Makes a standard request to the target for comparison
+3. **Technique application**: Executes selected techniques in parallel
+4. **Result filtering**: Shows only responses that differ from the initial calibration (unless verbose mode is used)
+
 ## Customization
 
 To edit or add new bypasses, modify the payloads directly in the [payloads](https://github.com/devploit/nomore403/tree/main/payloads) folder. nomore403 will automatically incorporate these changes.
+
+### Payloads Folder Structure
+
+- **headers**: Headers used for bypassing
+- **ips**: IP addresses to inject in specific headers
+- **httpmethods**: Alternative HTTP methods
+- **endpaths**: Custom paths to add at the end of the target URL
+- **midpaths**: Patterns to insert in the middle of paths
+- **simpleheaders**: Common simple headers
+- **useragents**: List of User-Agents for rotation
 
 ## Usage
 
@@ -107,12 +159,17 @@ Verbose:                false
 ### Use custom header + specific IP address for bypasses
 
 ```bash
-./nomore403 -u https://domain.com/admin -H "Environment: Staging" -b 8.8.8.8
+./nomore403 -u https://domain.com/admin -H "Environment: Staging" -i 8.8.8.8
 ```
 
 ### Set new max of goroutines + add delay between requests
 ```bash
 ./nomore403 -u https://domain.com/admin -m 10 -d 200
+```
+
+### Filter by specific status codes
+```bash
+./nomore403 -u https://domain.com/admin --status 200,302
 ```
 
 ## Options
@@ -148,12 +205,20 @@ Flags:
   -v, --verbose               Enable verbose output for detailed request/response logging (not based on auto-calibrate).
 ```
 
+## Common Use Cases
+
+- **Security Audits**: Identify misconfigurations in authentication systems
+- **Bug Bounty**: Discover bypasses in protected endpoints
+- **Penetration Testing**: Gain access to restricted areas during assessments
+- **Hardening**: Verify the robustness of implemented protections
+
 ## Contributing
 
 We welcome contributions of all forms. Here's how you can help:
 
- - Report bugs and suggest features.
- - Submit pull requests with bug fixes and new features.
+ - Report bugs and suggest features
+ - Submit pull requests with bug fixes and new features
+ - Add new payloads to existing folders
 
 ## Security Considerations
 
@@ -162,6 +227,13 @@ While nomore403 is designed for educational and ethical testing purposes, it's i
 ## License
 
 nomore403 is released under the MIT License. See the [LICENSE](https://github.com/devploit/dontgo403/blob/main/LICENSE) file for details.
+
+## Acknowledgments
+
+NoMore403 draws inspiration from several projects in the web security space:
+- [Dontgo403](https://github.com/devploit/dontgo403) - The predecessor to NoMore403
+- The cybersecurity community for documenting and sharing bypass techniques
+- All contributors who have helped improve this tool
 
 ## Contact
 

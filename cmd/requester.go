@@ -44,7 +44,6 @@ type RequestOptions struct {
 }
 
 var _verbose bool
-var defaultSc int
 var defaultCl int
 var uniqueResults = make(map[string]bool)
 var uniqueResultsByTechnique = make(map[string]map[string]bool)
@@ -153,13 +152,11 @@ func printResult(result Result) {
 func showInfo(options RequestOptions) {
 	var statusCodeStrings []string
 
-	for _, code := range statusCodes {
-		statusCodeStrings = append(statusCodeStrings, code)
-	}
+	statusCodeStrings = append(statusCodeStrings, statusCodes...)
 	statusCodesString := strings.Join(statusCodeStrings, ", ")
 
 	if !nobanner {
-		fmt.Printf(color.MagentaString("━━━━━━━━━━━━━━ NOMORE403 CONFIGURATION ━━━━━━━━━━━━━━━━━━\n"))
+		fmt.Print(color.MagentaString("━━━━━━━━━━━━━━ NOMORE403 CONFIGURATION ━━━━━━━━━━━━━━━━━━\n"))
 		fmt.Printf("%s \t\t%s\n", "Target:", options.uri)
 		if len(options.reqHeaders) > 0 && len(options.reqHeaders[0]) != 0 {
 			for _, header := range options.headers {
@@ -252,7 +249,6 @@ func requestDefault(options RequestOptions) {
 
 	uniqueResultsMutex.Lock()
 	for _, result := range results {
-		defaultSc = result.statusCode
 		defaultCl = result.contentLength
 	}
 	uniqueResultsMutex.Unlock()
@@ -632,7 +628,7 @@ func requestDoubleEncoding(options RequestOptions) {
 			}
 
 			result := Result{
-				line:          fmt.Sprintf("%s", encodedUri),
+				line:          encodedUri,
 				statusCode:    statusCode,
 				contentLength: len(response),
 				defaultReq:    false,
@@ -794,10 +790,7 @@ func randomLine(filePath string) (string, error) {
 		return "", err
 	}
 	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-
-		}
+		_ = file.Close()
 	}(file)
 
 	var lines []string

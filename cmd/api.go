@@ -49,7 +49,6 @@ type header struct {
 }
 
 // request makes an HTTP request using headers `headers` and proxy `proxy`.
-// If `method` is empty, it defaults to "GET".
 func request(method, uri string, headers []header, proxy *url.URL, rateLimit bool, timeout int, redirect bool) (int, []byte, error) {
 	if method == "" {
 		method = "GET"
@@ -84,7 +83,7 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 		}
 	}
 
-	// Use  raw URL parser instead
+	// Use  raw URL parser
 	parsedURL, err := url.Parse(uri)
 	if err != nil {
 		log.Println(err)
@@ -134,7 +133,7 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, tec
 	if err != nil {
 		log.Fatalf("Error reading request file: %v", err)
 	}
-	//Down HTTP/2 to HTTP/1/1
+	//Down HTTP/2 to HTTP/1.1
 	temp := strings.Split(string(content), "\n")
 	fistLine := strings.Replace(temp[0], "HTTP/2", "HTTP/1.1", 1)
 	content = []byte(strings.Join(append([]string{fistLine}, temp[1:]...), "\n"))
