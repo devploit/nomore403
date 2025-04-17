@@ -59,9 +59,30 @@ Before you install and run `nomore403`, make sure you have the following:
 
 ## Installation
 
+### Compile from Source
+
+This is the recommended method as it ensures you have all necessary files, including the payloads folder:
+
+```bash
+git clone https://github.com/devploit/nomore403
+cd nomore403
+go get
+go build
+```
+
 ### From Releases
 
-Grab the latest release for your OS from our [Releases](https://github.com/devploit/nomore403/releases) page.
+You can download pre-compiled binaries for your OS from our [Releases](https://github.com/devploit/nomore403/releases) page.
+
+**Important**: When installing via pre-compiled binaries, the payloads folder might not be included. If that's the case, download it separately:
+
+```bash
+# After downloading the binary
+git clone --depth 1 https://github.com/devploit/nomore403.git
+cp -r nomore403/payloads /path/to/your/preferred/location
+# Then use nomore403 with -f flag
+nomore403 -u https://domain.com/admin -f /path/to/your/preferred/location/payloads
+```
 
 ### From Go install
 
@@ -71,25 +92,14 @@ You can install nomore403 directly with Go:
 go install github.com/devploit/nomore403@latest
 ```
 
-**Important**: When installing via `go install`, the payloads folder will not be included. You'll need to download it separately from the repository:
-
-> ```bash
-> # After installing with go install
-> git clone --depth 1 https://github.com/devploit/nomore403.git
-> cp -r nomore403/payloads /path/to/your/preferred/location
-> # Then use nomore403 with -f flag
-> nomore403 -u https://domain.com/admin -f /path/to/your/preferred/location/payloads
-> ```
-
-### Compile from Source
-
-If you prefer to compile the tool yourself:
+**Important**: When installing via `go install`, the payloads folder will not be included. You'll need to download it separately:
 
 ```bash
-git clone https://github.com/devploit/nomore403
-cd nomore403
-go get
-go build
+# After installing with go install
+git clone --depth 1 https://github.com/devploit/nomore403.git
+cp -r nomore403/payloads /path/to/your/preferred/location
+# Then use nomore403 with -f flag
+nomore403 -u https://domain.com/admin -f /path/to/your/preferred/location/payloads
 ```
 
 ## How It Works
