@@ -85,8 +85,9 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 
 	// Use  raw URL parser
 	parsedURL, err := url.Parse(uri)
-	if err != nil {
-		log.Println(err)
+	if err != nil || parsedURL == nil {
+		log.Printf("Invalid URL skipped: %s (%v)\n", uri, err)
+		return 0, nil, nil
 	}
 
 	parsedURL.RawPath = parsedURL.EscapedPath()
