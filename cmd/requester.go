@@ -132,6 +132,8 @@ func printResult(result Result) {
 
 	// Assign colors to HTTP status codes based on their range
 	switch result.statusCode {
+	case 0:
+		return
 	case 200, 201, 202, 203, 204, 205, 206:
 		code = color.GreenString(strconv.Itoa(result.statusCode))
 	case 300, 301, 302, 303, 304, 307, 308:
