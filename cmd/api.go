@@ -24,16 +24,19 @@ func parseFile(filename string) ([]string, error) {
 		return nil, err
 	}
 	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			log.Fatalf("{#err}")
+		if err := file.Close(); err != nil {
+			log.Printf("Error closing file: %v", err)
 		}
 	}(file)
 
 	var lines []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		line := strings.TrimRight(scanner.Text(), "\r")
+		if line == "" {
+			continue
+		}
+		lines = append(lines, line)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
@@ -54,27 +57,30 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 		method = "GET"
 	}
 
-	if len(proxy.Host) == 0 {
+	if proxy == nil || len(proxy.Host) == 0 {
 		proxy = nil
 	}
 
+	timeoutDuration := time.Duration(timeout) * time.Millisecond
 	customTransport := &http.Transport{
 		Proxy: http.ProxyURL(proxy),
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
 		DialContext: (&net.Dialer{
-			Timeout:   time.Duration(timeout) / 1000 * time.Second,
+			Timeout:   timeoutDuration,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
+		TLSHandshakeTimeout:   timeoutDuration,
+		ResponseHeaderTimeout: timeoutDuration,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
 	client := &http.Client{
 		Transport: customTransport,
+		Timeout:   timeoutDuration,
 	}
 
 	if !redirect {
@@ -85,8 +91,8 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 
 	// Use  raw URL parser
 	parsedURL, err := url.Parse(uri)
-	if err != nil || parsedURL == nil {
-		return 0, nil, nil
+	if err != nil || parsedURL == nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return 0, nil, fmt.Errorf("invalid URL: %q", uri)
 	}
 
 	parsedURL.RawPath = parsedURL.EscapedPath()

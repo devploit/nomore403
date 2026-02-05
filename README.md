@@ -259,7 +259,7 @@ While nomore403 is designed for educational and ethical testing purposes, it's i
 
 ## License
 
-nomore403 is released under the MIT License. See the [LICENSE](https://github.com/devploit/dontgo403/blob/main/LICENSE) file for details.
+nomore403 is released under the MIT License. See the [LICENSE](https://github.com/devploit/nomore403/blob/main/LICENSE) file for details.
 
 ## Acknowledgments
 
