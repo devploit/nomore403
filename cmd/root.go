@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -46,17 +46,22 @@ var rootCmd = &cobra.Command{
 			folder = "payloads"
 		}
 
-		fi, _ := os.Stdin.Stat()
+		fi, err := os.Stdin.Stat()
+		if err != nil {
+			log.Fatalf("Error reading stdin: %v", err)
+		}
 		if (fi.Mode() & os.ModeCharDevice) == 0 {
-			bytes, _ := ioutil.ReadAll(os.Stdin)
-			content := string(bytes)
-			lines := strings.Split(content, "\n")
-			lastchar := lines[len(lines)-1]
+			bytes, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				log.Fatalf("Error reading stdin: %v", err)
+			}
+			lines := strings.Split(string(bytes), "\n")
 			for _, line := range lines {
-				uri = line
-				if uri == lastchar {
-					break
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
 				}
+				uri = line
 				requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, technique, nobanner, rateLimit, timeout, redirect, randomAgent)
 			}
 		} else {
