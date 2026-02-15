@@ -81,6 +81,12 @@ var rootCmd = &cobra.Command{
 	},
 }
 
+// SetVersionInfo sets the version information for the root command.
+func SetVersionInfo(version, buildDate string) {
+	rootCmd.Version = version
+	rootCmd.SetVersionTemplate(fmt.Sprintf("nomore403 version %s (built %s)\n", version, buildDate))
+}
+
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
