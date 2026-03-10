@@ -32,11 +32,16 @@
 
 ## Introduction
 
-`nomore403` is an innovative tool designed to help cybersecurity professionals and enthusiasts bypass HTTP 40X errors encountered during web security assessments. Unlike other solutions, `nomore403` automates various techniques to seamlessly navigate past these access restrictions, offering a broad range of strategies from header manipulation to method tampering.
+`nomore403` is a tool designed to help cybersecurity professionals bypass HTTP 40X errors encountered during web security assessments. It automates various techniques to navigate past access restrictions, from header manipulation to method tampering, with smart output filtering to highlight only the results that matter.
 
 ## Features
 
-- **Auto-calibration**: Automatically detects server base responses to identify successful bypasses
+- **Auto-calibration**: Multi-sample calibration with tolerance detection to accurately identify successful bypasses
+- **Smart filtering**: Automatically hides results matching the default response, showing only interesting differences
+- **Deduplication**: Groups repeated results per technique, showing up to 3 examples with a summary count
+- **Retry with backoff**: Automatic retries on transient errors (timeouts, connection resets) with exponential backoff
+- **Progress tracking**: Per-technique progress bar on TTY terminals, with clean output in pipes/CI
+- **Color-coded output**: Status codes and content-length are colored based on significance (green = likely bypass, red = blocked)
 - **Multiple bypass techniques**: Implements 8 different techniques to bypass restrictions
 - **High concurrency**: Uses goroutines for fast and efficient testing
 - **Customizable**: Easily add new payloads and techniques
@@ -104,10 +109,10 @@ nomore403 -u https://domain.com/admin -f /path/to/your/preferred/location/payloa
 
 ## How It Works
 
-1. **Auto-calibration**: The tool makes a request to a non-existent path to determine the base response
-2. **Default request**: Makes a standard request to the target for comparison
-3. **Technique application**: Executes selected techniques in parallel
-4. **Result filtering**: Shows only responses that differ from the initial calibration (unless verbose mode is used)
+1. **Auto-calibration**: Makes 3 requests to non-existent paths and calculates the average response size with a dynamic tolerance range. This creates a reliable baseline to filter false positives.
+2. **Default request**: Makes a standard request to the target to capture the "blocked" response signature (status code + content-length).
+3. **Technique execution**: Runs selected techniques concurrently with per-technique progress bars. Requests are retried automatically on transient errors with exponential backoff.
+4. **Smart filtering**: Only shows responses that differ meaningfully from the default blocked response — different status code or significantly different content-length. Repeated identical results are deduplicated with a summary count.
 
 ## Customization
 
@@ -128,47 +133,44 @@ To edit or add new bypasses, modify the payloads directly in the [payloads](http
 ### Output example
 
 ```bash
-━━━━━━━━━━━━━━ NOMORE403 CONFIGURATION ━━━━━━━━━━━━━━━━━━
-Target:                 https://domain.com/admin
-Headers:                false
-Proxy:                  false
-User Agent:             nomore403
-Method:                 GET
-Payloads folder:        payloads
-Custom bypass IP:       false
-Follow Redirects:       false
-Rate Limit detection:   false
-Status:                 
-Timeout (ms):           6000
-Delay (ms):             0
-Techniques:             verbs, verbs-case, headers, endpaths, midpaths, double-encoding, http-versions, path-case
-Unique:                 false
-Verbose:                false
+━━━━━━━━━━━━━━━━━ NOMORE403 ━━━━━━━━━━━━━━━━━━
+  Target: https://domain.com/admin
+  Method: GET User-Agent: nomore403
+  Timeout: 6000ms Delay: 0ms
+  Proxy: - Bypass IP: -
+  Flags: -
+  Techniques: verbs, verbs-case, headers, endpaths, midpaths, double-encoding, http-versions, path-case
+  Payloads: payloads
 
 ━━━━━━━━━━━━━━━ AUTO-CALIBRATION RESULTS ━━━━━━━━━━━━━━━
-[✔] Calibration URI: https://domain.com/admin/calibration_test_123456
+[✔] Calibration samples: 3
 [✔] Status Code: 404
-[✔] Content Length: 1821 bytes
+[✔] Avg Content Length: 1821 bytes (tolerance: ±50)
 
 ━━━━━━━━━━━━━ DEFAULT REQUEST ━━━━━━━━━━━━━
-403 	  429 bytes https://domain.com/admin
+403 	          429 bytes https://domain.com/admin
 
 ━━━━━━━━━━━━━ VERB TAMPERING ━━━━━━━━━━━━━━
 
 ━━━━━ VERB TAMPERING CASE SWITCHING ━━━━━━━
 
 ━━━━━━━━━━━━━ HEADERS ━━━━━━━━━━━━━━━━━━━━━
+200 	         2047 bytes X-Original-URL: /admin
+200 	         2047 bytes X-Rewrite-URL: /admin
+200 	         2047 bytes X-Custom-IP-Authorization: 127.0.0.1
+  ... and 12 more with 200/2047 bytes (use -v to see all)
 
 ━━━━━━━━━━━━━ CUSTOM PATHS ━━━━━━━━━━━━━━━━
-200 	 2047 bytes https://domain.com/;///..admin
+200 	         2047 bytes https://domain.com/;///..admin
+
+━━━━━━━━━━━━━ MIDPATHS ━━━━━━━━━━━━━━━━━━━━
 
 ━━━━━━━━━━━━━ DOUBLE-ENCODING ━━━━━━━━━━━━━
 
 ━━━━━━━━━━━━━ HTTP VERSIONS ━━━━━━━━━━━━━━━
-403      429 bytes HTTP/1.0
 
 ━━━━━━━━━━ PATH CASE SWITCHING ━━━━━━━━━━━━
-200 	 2047 bytes https://domain.com/%61dmin
+200 	         2047 bytes https://domain.com/%61dmin
 ```
 
 ### Basic Usage
@@ -205,6 +207,11 @@ Verbose:                false
 ./nomore403 -u https://domain.com/admin --status 200,302
 ```
 
+### Pipe URLs from stdin
+```bash
+cat urls.txt | ./nomore403
+```
+
 ## Options
 
 ```bash
@@ -236,6 +243,7 @@ Flags:
   -u, --uri string            Specify the target URL for the request.
   -a, --user-agent string     Specify a custom User-Agent string for requests (default: 'nomore403').
   -v, --verbose               Enable verbose output for detailed request/response logging (not based on auto-calibrate).
+      --version               version for nomore403
 ```
 
 ## Common Use Cases
