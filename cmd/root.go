@@ -48,12 +48,14 @@ var rootCmd = &cobra.Command{
 
 		fi, err := os.Stdin.Stat()
 		if err != nil {
-			log.Fatalf("Error reading stdin: %v", err)
+			log.Printf("[!] Error reading stdin: %v", err)
+			return
 		}
 		if (fi.Mode() & os.ModeCharDevice) == 0 {
 			bytes, err := io.ReadAll(os.Stdin)
 			if err != nil {
-				log.Fatalf("Error reading stdin: %v", err)
+				log.Printf("[!] Error reading stdin: %v", err)
+				return
 			}
 			lines := strings.Split(string(bytes), "\n")
 			for _, line := range lines {
@@ -69,11 +71,8 @@ var rootCmd = &cobra.Command{
 				loadFlagsFromRequestFile(requestFile, schema, verbose, technique, redirect)
 			} else {
 				if len(uri) == 0 {
-					err := cmd.Help()
-					if err != nil {
-						log.Fatalf("Error printing help: %v", err)
-					}
-					log.Fatal()
+					_ = cmd.Help()
+					return
 				}
 				requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, technique, nobanner, rateLimit, timeout, redirect, randomAgent)
 			}
@@ -138,9 +137,6 @@ func initConfig() {
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
-		_, err := fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
-		if err != nil {
-			log.Fatalf("Error writing to stderr: %v", err)
-		}
+		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
 	}
 }

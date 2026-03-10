@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -16,6 +15,9 @@ import (
 
 	"github.com/fatih/color"
 )
+
+// ErrRateLimited is returned when the server responds with HTTP 429.
+var ErrRateLimited = fmt.Errorf("rate limited (HTTP 429)")
 
 // parseFile reads a file given its filename and returns a list containing each of its lines.
 func parseFile(filename string) ([]string, error) {
@@ -51,8 +53,69 @@ type header struct {
 	value string
 }
 
-// request makes an HTTP request using headers `headers` and proxy `proxy`.
-func request(method, uri string, headers []header, proxy *url.URL, rateLimit bool, timeout int, redirect bool) (int, []byte, error) {
+// requestWithRetry makes an HTTP request with retry logic and exponential backoff.
+// It retries up to maxRetries times on transient errors (timeouts, connection errors).
+// On HTTP 429, it retries with backoff if rateLimit is false; returns ErrRateLimited if rateLimit is true.
+func requestWithRetry(method, uri string, headers []header, proxy *url.URL, rateLimit bool, timeout int, redirect bool) (int, []byte, error) {
+	const maxRetries = 2
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(1<<uint(attempt)) * 500 * time.Millisecond
+			time.Sleep(backoff)
+		}
+
+		statusCode, resp, err := request(method, uri, headers, proxy, timeout, redirect)
+		if err == nil {
+			// Handle rate limiting
+			if statusCode == 429 {
+				if rateLimit {
+					return statusCode, resp, ErrRateLimited
+				}
+				lastErr = fmt.Errorf("HTTP 429 rate limited on attempt %d", attempt+1)
+				continue
+			}
+			return statusCode, resp, nil
+		}
+
+		lastErr = err
+		// Only retry on transient errors (timeouts, connection refused, etc.)
+		if !isTransientError(err) {
+			return 0, nil, err
+		}
+		if attempt < maxRetries {
+			log.Printf("[!] Transient error (attempt %d/%d): %v", attempt+1, maxRetries+1, err)
+		}
+	}
+
+	return 0, nil, fmt.Errorf("request failed after %d attempts: %w", maxRetries+1, lastErr)
+}
+
+// isTransientError returns true for errors that are likely transient and worth retrying.
+func isTransientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	transientPatterns := []string{
+		"timeout",
+		"connection refused",
+		"connection reset",
+		"EOF",
+		"temporary failure",
+		"no such host", // DNS can be transient
+	}
+	for _, pattern := range transientPatterns {
+		if strings.Contains(strings.ToLower(errStr), strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
+}
+
+// request makes a single HTTP request using headers `headers` and proxy `proxy`.
+func request(method, uri string, headers []header, proxy *url.URL, timeout int, redirect bool) (int, []byte, error) {
 	if method == "" {
 		method = "GET"
 	}
@@ -89,7 +152,6 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 		}
 	}
 
-	// Use  raw URL parser
 	parsedURL, err := url.Parse(uri)
 	if err != nil || parsedURL == nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
 		return 0, nil, fmt.Errorf("invalid URL: %q", uri)
@@ -113,20 +175,15 @@ func request(method, uri string, headers []header, proxy *url.URL, rateLimit boo
 	if err != nil {
 		return 0, nil, err
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			log.Fatalf("{#err}")
+	defer func() {
+		if cerr := res.Body.Close(); cerr != nil {
+			log.Printf("[!] Error closing response body: %v", cerr)
 		}
-	}(res.Body)
+	}()
 
 	resp, err := httputil.DumpResponse(res, true)
 	if err != nil {
 		return 0, nil, err
-	}
-
-	if rateLimit && res.StatusCode == 429 {
-		log.Fatalf("Rate limit detected (HTTP 429). Exiting...")
 	}
 
 	return res.StatusCode, resp, nil
@@ -137,62 +194,107 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, tec
 	// Read the content of the request file
 	content, err := os.ReadFile(requestFile)
 	if err != nil {
-		log.Fatalf("Error reading request file: %v", err)
+		log.Printf("[!] Error reading request file: %v", err)
+		return
 	}
-	//Down HTTP/2 to HTTP/1.1
+
 	temp := strings.Split(string(content), "\n")
-	fistLine := strings.Replace(temp[0], "HTTP/2", "HTTP/1.1", 1)
-	content = []byte(strings.Join(append([]string{fistLine}, temp[1:]...), "\n"))
+	if len(temp) == 0 {
+		log.Printf("[!] Request file is empty: %s", requestFile)
+		return
+	}
+
+	// Down HTTP/2 to HTTP/1.1
+	firstLine := strings.Replace(temp[0], "HTTP/2", "HTTP/1.1", 1)
+	content = []byte(strings.Join(append([]string{firstLine}, temp[1:]...), "\n"))
 
 	reqReader := strings.NewReader(string(content))
 	req, err := http.ReadRequest(bufio.NewReader(reqReader))
 	if err != nil {
-		log.Fatalf("Error parsing request: %v", err)
+		log.Printf("[!] Error parsing request file: %v", err)
+		return
 	}
+
 	if strings.HasPrefix(req.RequestURI, "http://") {
-		req.RequestURI = "/" + strings.SplitAfterN(req.RequestURI, "/", 4)[3]
+		parts := strings.SplitAfterN(req.RequestURI, "/", 4)
+		if len(parts) >= 4 {
+			req.RequestURI = "/" + parts[3]
+		}
 	}
 
 	httpSchema := "https://"
-
 	if schema {
 		httpSchema = "http://"
 	}
 
-	uri := httpSchema + req.Host + strings.Split(req.RequestURI, "?")[0]
+	uri := httpSchema + req.Host + req.RequestURI
 
-	// Extract headers from the request and assign them to the req_headers slice
+	// Extract headers from the request
 	var reqHeaders []string
-	// Append req.Header to reqHeaders
 	for k, v := range req.Header {
 		reqHeaders = append(reqHeaders, k+": "+strings.Join(v, ""))
 	}
 	httpMethod := req.Method
-	// Assign the extracted values to the corresponding flag variables
 	requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, techniques, nobanner, rateLimit, timeout, redirect, randomAgent)
 }
 
-func runAutocalibrate(options RequestOptions) int {
-	calibrationURI := options.uri
-	if !strings.HasSuffix(calibrationURI, "/") {
-		calibrationURI += "/"
-	}
-	calibrationURI += "calibration_test_123456"
+// calibrationTolerance defines the acceptable variance in content-length between calibration samples.
+const calibrationTolerance = 50
 
-	statusCode, response, err := request("GET", calibrationURI, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
-	if err != nil {
-		log.Printf("[!] Error during calibration request: %v\n", err)
-		return 0
+func runAutocalibrate(options RequestOptions) (int, int) {
+	calibrationPaths := []string{"calibration_test_123456", "calib_nonexist_789xyz", "zz_calibrate_000"}
+	var samples []int
+
+	baseURI := options.uri
+	if !strings.HasSuffix(baseURI, "/") {
+		baseURI += "/"
 	}
 
-	// Save default response
-	defaultSc := statusCode
-	defaultCl := len(response)
+	var lastStatusCode int
+	for _, path := range calibrationPaths {
+		calibrationURI := baseURI + path
+		statusCode, response, err := requestWithRetry("GET", calibrationURI, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+		if err != nil {
+			log.Printf("[!] Error during calibration request (%s): %v\n", path, err)
+			continue
+		}
+		lastStatusCode = statusCode
+		samples = append(samples, len(response))
+	}
+
+	if len(samples) == 0 {
+		log.Printf("[!] All calibration requests failed, disabling auto-calibration filtering")
+		return 0, 0
+	}
+
+	// Calculate average and max deviation
+	sum := 0
+	for _, s := range samples {
+		sum += s
+	}
+	avgCl := sum / len(samples)
+
+	maxDeviation := 0
+	for _, s := range samples {
+		dev := s - avgCl
+		if dev < 0 {
+			dev = -dev
+		}
+		if dev > maxDeviation {
+			maxDeviation = dev
+		}
+	}
+
+	// Use tolerance = max(calibrationTolerance, maxDeviation*2) to handle dynamic content
+	tolerance := calibrationTolerance
+	if maxDeviation*2 > tolerance {
+		tolerance = maxDeviation * 2
+	}
 
 	fmt.Println(color.MagentaString("\n━━━━━━━━━━━━━━━ AUTO-CALIBRATION RESULTS ━━━━━━━━━━━━━━━"))
-	fmt.Printf("[✔] Calibration URI: %s\n", calibrationURI)
-	fmt.Printf("[✔] Status Code: %d\n", defaultSc)
-	fmt.Printf("[✔] Content Length: %d bytes\n", defaultCl)
+	fmt.Printf("[✔] Calibration samples: %d\n", len(samples))
+	fmt.Printf("[✔] Status Code: %d\n", lastStatusCode)
+	fmt.Printf("[✔] Avg Content Length: %d bytes (tolerance: ±%d)\n", avgCl, tolerance)
 
-	return defaultCl
+	return avgCl, tolerance
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -43,11 +45,86 @@ type RequestOptions struct {
 	autocalibrate bool
 }
 
-var _verbose bool
-var defaultCl int
+// Thread-safe globals using atomic operations.
+var atomicVerbose int32
+var atomicDefaultCl int64
+var atomicCalibTolerance int64
+var atomicDefaultSc int32  // default request status code
+var atomicDefaultRespCl int64 // default request content-length (separate from calibration)
+
+func getVerbose() bool       { return atomic.LoadInt32(&atomicVerbose) != 0 }
+func setVerbose(v bool)      { var val int32; if v { val = 1 }; atomic.StoreInt32(&atomicVerbose, val) }
+func getDefaultCl() int      { return int(atomic.LoadInt64(&atomicDefaultCl)) }
+func setDefaultCl(v int)     { atomic.StoreInt64(&atomicDefaultCl, int64(v)) }
+func getCalibTolerance() int { return int(atomic.LoadInt64(&atomicCalibTolerance)) }
+func setCalibTolerance(v int) {
+	atomic.StoreInt64(&atomicCalibTolerance, int64(v))
+}
+func getDefaultSc() int      { return int(atomic.LoadInt32(&atomicDefaultSc)) }
+func setDefaultSc(v int)     { atomic.StoreInt32(&atomicDefaultSc, int32(v)) }
+func getDefaultRespCl() int  { return int(atomic.LoadInt64(&atomicDefaultRespCl)) }
+func setDefaultRespCl(v int) { atomic.StoreInt64(&atomicDefaultRespCl, int64(v)) }
+
+// isCalibrationMatch returns true if the content length is within tolerance of the calibrated default.
+func isCalibrationMatch(contentLength int) bool {
+	cl := getDefaultCl()
+	if cl == 0 {
+		return false
+	}
+	diff := contentLength - cl
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff <= getCalibTolerance()
+}
+
+// isInteresting returns true if the result differs meaningfully from the default response.
+// A result is interesting if:
+// - The status code differs from the default request's status code, OR
+// - The content length differs significantly from the default request's content length
+func isInteresting(result Result) bool {
+	defSc := getDefaultSc()
+	defCl := getDefaultRespCl()
+
+	// If we have no baseline yet, show everything
+	if defSc == 0 && defCl == 0 {
+		return true
+	}
+
+	// Different status code = always interesting
+	if result.statusCode != defSc {
+		return true
+	}
+
+	// Same status code: only interesting if content length differs beyond tolerance
+	if defCl > 0 {
+		diff := result.contentLength - defCl
+		if diff < 0 {
+			diff = -diff
+		}
+		tolerance := getCalibTolerance()
+		if tolerance == 0 {
+			tolerance = calibrationTolerance
+		}
+		if diff > tolerance {
+			return true
+		}
+	}
+
+	return false
+}
+
 var uniqueResults = make(map[string]bool)
 var uniqueResultsByTechnique = make(map[string]map[string]bool)
 var verbTamperingResults = make(map[string]int)
+
+// smartDedupMax is the maximum number of results to show per technique per status+CL group
+// in non-verbose mode. Additional results are counted and summarized.
+const smartDedupMax = 3
+
+// techSignatureCounts tracks how many results per technique+status+CL we've seen.
+var techSignatureCounts = make(map[string]int)
+var techSignatureCountsMutex = &sync.Mutex{}
 
 var (
 	printMutex               = &sync.Mutex{}
@@ -61,8 +138,14 @@ func printResponse(result Result, technique string) {
 	defer printMutex.Unlock()
 
 	// If verbose mode is enabled, directly print the result
-	if _verbose || technique == "http-versions" {
+	if getVerbose() || technique == "http-versions" {
 		printResult(result)
+		return
+	}
+
+	// In non-verbose (smart) mode: only show results that differ from the default response.
+	// Default request itself is always shown.
+	if !result.defaultReq && !isInteresting(result) {
 		return
 	}
 
@@ -76,7 +159,7 @@ func printResponse(result Result, technique string) {
 			}
 		}
 		if !statusMatch {
-			return // Skip results that do not match the filtered status codes
+			return
 		}
 	}
 
@@ -106,14 +189,87 @@ func printResponse(result Result, technique string) {
 	uniqueResultsByTechnique[technique][techniqueKey] = true
 	uniqueResultsByTechMutex.Unlock()
 
+	// Smart dedup: limit results per technique+status+CL group.
+	// Show up to smartDedupMax examples, then suppress and track count for summary.
+	if !result.defaultReq {
+		sigKey := fmt.Sprintf("%s:%d:%d", technique, result.statusCode, result.contentLength)
+		techSignatureCountsMutex.Lock()
+		techSignatureCounts[sigKey]++
+		count := techSignatureCounts[sigKey]
+		techSignatureCountsMutex.Unlock()
+
+		if count > smartDedupMax {
+			return // suppressed, will be summarized by printSuppressedSummary
+		}
+	}
+
 	// Print the result after all filters are applied
 	printResult(result)
 }
 
+// printSuppressedSummary prints a summary of suppressed results for a technique.
+// Should be called after a technique finishes.
+func printSuppressedSummary(technique string) {
+	if getVerbose() {
+		return
+	}
+
+	printMutex.Lock()
+	defer printMutex.Unlock()
+
+	techSignatureCountsMutex.Lock()
+	defer techSignatureCountsMutex.Unlock()
+
+	prefix := technique + ":"
+	for key, count := range techSignatureCounts {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		suppressed := count - smartDedupMax
+		if suppressed > 0 {
+			// Extract status and CL from key "technique:status:cl"
+			parts := strings.SplitN(key, ":", 3)
+			if len(parts) == 3 {
+				fmt.Printf("  ... and %d more with %s/%s bytes (use -v to see all)\n",
+					suppressed, parts[1], parts[2])
+			}
+		}
+	}
+}
+
+// colorizeContentLength returns the content-length string colored based on
+// how much it differs from the default response:
+//   - Much larger (>2x) = green (likely real content / bypass)
+//   - Larger = cyan
+//   - Similar = dim/blue (default)
+//   - Smaller = yellow
+//   - Much smaller (<50%) = red
+func colorizeContentLength(cl int) string {
+	clStr := strconv.Itoa(cl) + " bytes"
+	defCl := getDefaultRespCl()
+
+	if defCl == 0 || cl == 0 {
+		return color.BlueString(clStr)
+	}
+
+	ratio := float64(cl) / float64(defCl)
+	switch {
+	case ratio > 2.0:
+		return color.GreenString(clStr)
+	case ratio > 1.2:
+		return color.CyanString(clStr)
+	case ratio < 0.5:
+		return color.RedString(clStr)
+	case ratio < 0.8:
+		return color.YellowString(clStr)
+	default:
+		return color.BlueString(clStr)
+	}
+}
+
 // printResult prints the result of an HTTP request in a tabular format with colored output based on the status codes.
+// Caller must hold printMutex.
 func printResult(result Result) {
-	// Format the result
-	resultContentLength := strconv.Itoa(result.contentLength) + " bytes"
 	var code string
 
 	// Assign colors to HTTP status codes based on their range
@@ -129,52 +285,95 @@ func printResult(result Result) {
 	case 500, 501, 502, 503, 504, 505, 511:
 		code = color.MagentaString(strconv.Itoa(result.statusCode))
 	default:
-		code = strconv.Itoa(result.statusCode) // No color for other codes
+		code = strconv.Itoa(result.statusCode)
 	}
 
-	// Print the result
-	fmt.Printf("%s \t%20s %s\n", code, color.BlueString(resultContentLength), result.line)
+	clStr := colorizeContentLength(result.contentLength)
+
+	// Clear progress bar, print result, redraw progress bar
+	clearActiveProgress()
+	fmt.Printf("%s \t%20s %s\n", code, clStr, result.line)
+	redrawActiveProgress()
 }
 
-// showInfo prints the configuration options used for the scan.
+// showInfo prints the configuration options used for the scan in a compact two-column layout.
 func showInfo(options RequestOptions) {
-	var statusCodeStrings []string
-
-	statusCodeStrings = append(statusCodeStrings, statusCodes...)
-	statusCodesString := strings.Join(statusCodeStrings, ", ")
-
-	if !nobanner {
-		fmt.Print(color.MagentaString("━━━━━━━━━━━━━━ NOMORE403 CONFIGURATION ━━━━━━━━━━━━━━━━━━\n"))
-		fmt.Printf("%s \t\t%s\n", "Target:", options.uri)
-		if len(options.reqHeaders) > 0 && len(options.reqHeaders[0]) != 0 {
-			for _, header := range options.headers {
-				fmt.Printf("%s \t\t%s: %s\n", "Headers:", header.key, header.value)
-			}
-		} else {
-			fmt.Printf("%s \t\t%s\n", "Headers:", "false")
-		}
-		if len(options.proxy.Host) != 0 {
-			fmt.Printf("%s \t\t\t%s\n", "Proxy:", options.proxy.Host)
-		} else {
-			fmt.Printf("%s \t\t\t%s\n", "Proxy:", "false")
-		}
-		fmt.Printf("%s \t\t%s\n", "User Agent:", options.userAgent)
-		fmt.Printf("%s \t\t%s\n", "Method:", options.method)
-		fmt.Printf("%s \t%s\n", "Payloads folder:", options.folder)
-		if len(bypassIP) != 0 {
-			fmt.Printf("%s \t%s\n", "Custom bypass IP:", options.bypassIP)
-		} else {
-			fmt.Printf("%s \t%s\n", "Custom bypass IP:", "false")
-		}
-		fmt.Printf("%s \t%s\n", "Follow Redirects:", strconv.FormatBool(options.redirect))
-		fmt.Printf("%s \t%s\n", "Rate Limit detection:", strconv.FormatBool(options.rateLimit))
-		fmt.Printf("%s \t\t%s\n", "Status:", statusCodesString)
-		fmt.Printf("%s \t\t%d\n", "Timeout (ms):", options.timeout)
-		fmt.Printf("%s \t\t%d\n", "Delay (ms):", delay)
-		fmt.Printf("%s \t\t%s\n", "Techniques:", strings.Join(options.techniques, ", "))
-		fmt.Printf("%s \t\t%t\n", "Unique:", uniqueOutput)
-		fmt.Printf("%s \t\t%t\n", "Verbose:", options.verbose)
+	if nobanner {
+		return
 	}
+
+	dim := color.New(color.Faint).SprintFunc()
+	val := color.New(color.FgWhite, color.Bold).SprintFunc()
+
+	fmt.Println(color.MagentaString("━━━━━━━━━━━━━━━━━ NOMORE403 ━━━━━━━━━━━━━━━━━━"))
+	fmt.Printf("  %s %s\n", dim("Target:"), val(options.uri))
+
+	// Row 1: Method + User-Agent
+	fmt.Printf("  %s %s %s %s\n",
+		dim("Method:"), val(options.method),
+		dim("User-Agent:"), val(options.userAgent))
+
+	// Row 2: Timeout + Delay
+	fmt.Printf("  %s %s %s %s\n",
+		dim("Timeout:"), val(fmt.Sprintf("%dms", options.timeout)),
+		dim("Delay:"), val(fmt.Sprintf("%dms", delay)))
+
+	// Row 3: Proxy + Bypass IP
+	proxyStr := "-"
+	if len(options.proxy.Host) != 0 {
+		proxyStr = options.proxy.Host
+	}
+	ipStr := "-"
+	if len(options.bypassIP) != 0 {
+		ipStr = options.bypassIP
+	}
+	fmt.Printf("  %s %s %s %s\n",
+		dim("Proxy:"), val(proxyStr),
+		dim("Bypass IP:"), val(ipStr))
+
+	// Row 4: Flags
+	var flags []string
+	if options.redirect {
+		flags = append(flags, "redirects")
+	}
+	if options.rateLimit {
+		flags = append(flags, "rate-limit")
+	}
+	if uniqueOutput {
+		flags = append(flags, "unique")
+	}
+	if options.verbose {
+		flags = append(flags, "verbose")
+	}
+	flagStr := "-"
+	if len(flags) > 0 {
+		flagStr = strings.Join(flags, ", ")
+	}
+	fmt.Printf("  %s %s\n", dim("Flags:"), val(flagStr))
+
+	// Row 5: Headers
+	if len(options.reqHeaders) > 0 && options.reqHeaders[0] != "" {
+		hdrs := make([]string, 0)
+		for _, h := range options.headers {
+			if h.key != "User-Agent" {
+				hdrs = append(hdrs, h.key+": "+h.value)
+			}
+		}
+		if len(hdrs) > 0 {
+			fmt.Printf("  %s %s\n", dim("Headers:"), val(strings.Join(hdrs, " | ")))
+		}
+	}
+
+	// Row 6: Status filter
+	if len(statusCodes) > 0 {
+		fmt.Printf("  %s %s\n", dim("Status filter:"), val(strings.Join(statusCodes, ", ")))
+	}
+
+	// Row 7: Techniques
+	fmt.Printf("  %s %s\n",
+		dim("Techniques:"), val(strings.Join(options.techniques, ", ")))
+
+	fmt.Printf("  %s %s\n", dim("Payloads:"), val(options.folder))
 }
 
 // generateCaseCombinations generates all combinations of uppercase and lowercase letters for a given string.
@@ -225,44 +424,58 @@ func selectRandomCombinations(combinations []string, n int) []string {
 func requestDefault(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━━━━ DEFAULT REQUEST ━━━━━━━━━━━━━━")
 
-	statusCode, response, err := request(options.method, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+	statusCode, response, err := requestWithRetry(options.method, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 	if err != nil {
+		if errors.Is(err, ErrRateLimited) {
+			log.Printf("[!] Rate limited on default request, aborting")
+			return
+		}
 		log.Println(err)
 	}
 
-	printResponse(Result{options.uri, statusCode, len(response), true}, "default")
-
-	if !options.autocalibrate || defaultCl == 0 {
-		defaultCl = len(response)
+	// Capture the default response signature for smart filtering
+	setDefaultSc(statusCode)
+	setDefaultRespCl(len(response))
+	if !options.autocalibrate || getDefaultCl() == 0 {
+		setDefaultCl(len(response))
 	}
+
+	printResponse(Result{options.uri, statusCode, len(response), true}, "default")
 }
 
 // requestMethods makes HTTP requests using a list of methods from a file and prints the results.
 func requestMethods(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━━━━ VERB TAMPERING ━━━━━━━━━━━━━━━")
 
-	var lines []string
 	lines, err := parseFile(options.folder + "/httpmethods")
 	if err != nil {
-		log.Fatalf("Error reading /httpmethods file: %v", err)
+		log.Printf("[!] Skipping verb tampering: %v", err)
+		return
 	}
 
 	w := goccm.New(maxGoroutines)
 	var verbTamperingResultsMutex = &sync.Mutex{}
+	p := newProgress("verb-tampering", len(lines))
 
 	for _, line := range lines {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
 		go func(line string) {
 			defer w.Done()
-			statusCode, response, err := request(line, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			defer p.done()
+			statusCode, response, err := requestWithRetry(line, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
+				if errors.Is(err, ErrRateLimited) {
+					log.Printf("[!] Rate limited, stopping verb tampering")
+					return
+				}
 				log.Println(err)
+				return
 			}
 
 			contentLength := len(response)
 
-			if contentLength == defaultCl {
+			if isCalibrationMatch(contentLength) {
 				return
 			}
 
@@ -273,65 +486,81 @@ func requestMethods(options RequestOptions) {
 			result := Result{
 				line:          line,
 				statusCode:    statusCode,
-				contentLength: len(response),
+				contentLength: contentLength,
 				defaultReq:    false,
 			}
 			printResponse(result, "verb-tampering")
 		}(line)
 	}
 	w.WaitAllDone()
+	p.finish()
 }
 
 // requestMethodsCaseSwitching makes HTTP requests using a list of methods from a file and prints the results.
 func requestMethodsCaseSwitching(options RequestOptions) {
 	color.Cyan("\n━━━━━━━ VERB TAMPERING CASE SWITCHING ━━━━━━━━")
 
-	var lines []string
 	lines, err := parseFile(options.folder + "/httpmethods")
 	if err != nil {
-		log.Fatalf("Error reading /httpmethods file: %v", err)
+		log.Printf("[!] Skipping verb case switching: %v", err)
+		return
 	}
 
-	w := goccm.New(maxGoroutines)
-
+	// Pre-build all work items to know the total for progress.
+	type workItem struct {
+		method              string
+		originalContentLength int
+	}
+	var items []workItem
 	for _, line := range lines {
-		methodCombinations := generateCaseCombinations(line)
-		filteredCombinations := filterOriginalMethod(line, methodCombinations)
-		selectedCombinations := selectRandomCombinations(filteredCombinations, 50)
-
 		originalContentLength, exists := verbTamperingResults[line]
 		if !exists {
 			continue
 		}
-
+		methodCombinations := generateCaseCombinations(line)
+		filteredCombinations := filterOriginalMethod(line, methodCombinations)
+		selectedCombinations := selectRandomCombinations(filteredCombinations, 50)
 		for _, method := range selectedCombinations {
-			time.Sleep(time.Duration(delay) * time.Millisecond)
-			w.Wait()
-			go func(method string) {
-				defer w.Done()
-				statusCode, response, err := request(method, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
-				if err != nil {
-					log.Println(err)
-				}
-
-				contentLength := len(response)
-
-				if contentLength == originalContentLength || contentLength == defaultCl {
-					return
-				}
-
-				result := Result{
-					line:          method,
-					statusCode:    statusCode,
-					contentLength: len(response),
-					defaultReq:    false,
-				}
-
-				printResponse(result, "verb-tampering-case")
-			}(method)
+			items = append(items, workItem{method, originalContentLength})
 		}
 	}
+
+	w := goccm.New(maxGoroutines)
+	p := newProgress("verb-case-switching", len(items))
+
+	for _, item := range items {
+		time.Sleep(time.Duration(delay) * time.Millisecond)
+		w.Wait()
+		go func(item workItem) {
+			defer w.Done()
+			defer p.done()
+			statusCode, response, err := requestWithRetry(item.method, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			if err != nil {
+				if errors.Is(err, ErrRateLimited) {
+					return
+				}
+				log.Println(err)
+				return
+			}
+
+			contentLength := len(response)
+
+			if contentLength == item.originalContentLength || isCalibrationMatch(contentLength) {
+				return
+			}
+
+			result := Result{
+				line:          item.method,
+				statusCode:    statusCode,
+				contentLength: contentLength,
+				defaultReq:    false,
+			}
+
+			printResponse(result, "verb-tampering-case")
+		}(item)
+	}
 	w.WaitAllDone()
+	p.finish()
 }
 
 // requestHeaders makes HTTP requests using a list of headers from a file and prints the results.
@@ -341,7 +570,8 @@ func requestHeaders(options RequestOptions) {
 	// Load headers from file
 	lines, err := parseFile(options.folder + "/headers")
 	if err != nil {
-		log.Fatalf("Error reading /headers file: %v", err)
+		log.Printf("[!] Skipping headers technique: %v", err)
+		return
 	}
 
 	// Load IPs for bypassing or use provided bypass IP
@@ -351,21 +581,21 @@ func requestHeaders(options RequestOptions) {
 	} else {
 		ips, err = parseFile(options.folder + "/ips")
 		if err != nil {
-			log.Fatalf("Error reading /ips file: %v", err)
+			log.Printf("[!] Skipping headers technique (no IPs file): %v", err)
+			return
 		}
 	}
 
 	// Load simple headers for additional testing
 	simpleHeaders, err := parseFile(options.folder + "/simpleheaders")
 	if err != nil {
-		log.Fatalf("Error reading /simpleheaders file: %v", err)
+		log.Printf("[!] Simple headers unavailable, continuing without them: %v", err)
+		simpleHeaders = nil
 	}
 
 	// Remove duplicates from lines and ips
 	lines = removeDuplicates(lines)
 	ips = removeDuplicates(ips)
-
-	w := goccm.New(maxGoroutines)
 
 	// Generate unique combinations of headers and IPs
 	uniqueCombined := make(map[string]bool)
@@ -387,6 +617,10 @@ func requestHeaders(options RequestOptions) {
 		}
 	}
 
+	totalRequests := len(combined) + len(simpleHeaders)
+	w := goccm.New(maxGoroutines)
+	p := newProgress("headers", totalRequests)
+
 	// Process combined headers
 	for _, item := range combined {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
@@ -396,14 +630,18 @@ func requestHeaders(options RequestOptions) {
 			IP   string
 		}) {
 			defer w.Done()
+			defer p.done()
 
 			// Add headers to the request
 			headers := make([]header, len(options.headers))
 			copy(headers, options.headers)
 			headers = append(headers, header{item.Line, item.IP})
 
-			statusCode, response, err := request(options.method, options.uri, headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, response, err := requestWithRetry(options.method, options.uri, headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
+				if errors.Is(err, ErrRateLimited) {
+					return
+				}
 				log.Println(err)
 				return
 			}
@@ -424,6 +662,7 @@ func requestHeaders(options RequestOptions) {
 		w.Wait()
 		go func(line string) {
 			defer w.Done()
+			defer p.done()
 
 			line = strings.TrimSpace(line)
 			if line == "" {
@@ -438,8 +677,11 @@ func requestHeaders(options RequestOptions) {
 			copy(headers, options.headers)
 			headers = append(headers, header{strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])})
 
-			statusCode, response, err := request(options.method, options.uri, headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, response, err := requestWithRetry(options.method, options.uri, headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
+				if errors.Is(err, ErrRateLimited) {
+					return
+				}
 				log.Println(err)
 				return
 			}
@@ -454,6 +696,7 @@ func requestHeaders(options RequestOptions) {
 		}(simpleHeader)
 	}
 	w.WaitAllDone()
+	p.finish()
 }
 
 // Helper function to remove duplicates from a slice
@@ -473,35 +716,41 @@ func removeDuplicates(input []string) []string {
 func requestEndPaths(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━━━━ CUSTOM PATHS ━━━━━━━━━━━━━━━━━")
 
-	var lines []string
 	lines, err := parseFile(options.folder + "/endpaths")
 	if err != nil {
-		log.Fatalf("Error reading custom paths file: %v", err)
+		log.Printf("[!] Skipping endpaths technique: %v", err)
+		return
 	}
 
 	w := goccm.New(maxGoroutines)
+	p := newProgress("endpaths", len(lines))
 
 	for _, line := range lines {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
 		go func(line string) {
 			defer w.Done()
+			defer p.done()
 
-			statusCode, response, err := request(options.method, joinURL(options.uri, line), options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, response, err := requestWithRetry(options.method, joinURL(options.uri, line), options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
+				if errors.Is(err, ErrRateLimited) {
+					return
+				}
 				log.Println(err)
+				return
 			}
 
 			contentLength := len(response)
 
-			if contentLength == defaultCl {
+			if isCalibrationMatch(contentLength) {
 				return
 			}
 
 			result := Result{
 				line:          joinURL(options.uri, line),
 				statusCode:    statusCode,
-				contentLength: len(response),
+				contentLength: contentLength,
 				defaultReq:    false,
 			}
 
@@ -510,14 +759,15 @@ func requestEndPaths(options RequestOptions) {
 	}
 
 	w.WaitAllDone()
+	p.finish()
 }
 
 // requestMidPaths makes HTTP requests using a list of custom mid-paths from a file and prints the results.
 func requestMidPaths(options RequestOptions) {
-	var lines []string
 	lines, err := parseFile(options.folder + "/midpaths")
 	if err != nil {
-		log.Fatalf("Error reading custom paths file: %v", err)
+		log.Printf("[!] Skipping midpaths technique: %v", err)
+		return
 	}
 
 	parsedURL, err := url.Parse(options.uri)
@@ -548,39 +798,46 @@ func requestMidPaths(options RequestOptions) {
 
 	baseURL := parsedURL.Scheme + "://" + parsedURL.Host
 	w := goccm.New(maxGoroutines)
+	p := newProgress("midpaths", len(lines))
 
 	for _, line := range lines {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
 		go func(line string) {
 			defer w.Done()
+			defer p.done()
 
 			fullpath := baseURL + basePath + line + uripath
 			if trailingSlash {
 				fullpath += "/"
 			}
 
-			statusCode, response, err := request(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, response, err := requestWithRetry(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
+				if errors.Is(err, ErrRateLimited) {
+					return
+				}
 				log.Println(err)
+				return
 			}
 
 			contentLength := len(response)
 
-			if contentLength == defaultCl {
+			if isCalibrationMatch(contentLength) {
 				return
 			}
 
 			result := Result{
 				line:          fullpath,
 				statusCode:    statusCode,
-				contentLength: len(response),
+				contentLength: contentLength,
 				defaultReq:    false,
 			}
 			printResponse(result, "midpaths")
 		}(line)
 	}
 	w.WaitAllDone()
+	p.finish()
 }
 
 // requestDoubleEncoding makes HTTP requests doing a double URL encode of the path
@@ -599,7 +856,16 @@ func requestDoubleEncoding(options RequestOptions) {
 		return
 	}
 
+	// Count non-slash characters for progress
+	totalChars := 0
+	for _, c := range originalPath {
+		if c != '/' {
+			totalChars++
+		}
+	}
+
 	w := goccm.New(maxGoroutines)
+	p := newProgress("double-encoding", totalChars)
 
 	for i, c := range originalPath {
 		if c == '/' {
@@ -617,9 +883,13 @@ func requestDoubleEncoding(options RequestOptions) {
 		w.Wait()
 		go func(encodedUri string, modifiedChar rune) {
 			defer w.Done()
+			defer p.done()
 
-			statusCode, response, err := request(options.method, encodedUri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, response, err := requestWithRetry(options.method, encodedUri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
+				if errors.Is(err, ErrRateLimited) {
+					return
+				}
 				log.Println(err)
 				return
 			}
@@ -635,11 +905,31 @@ func requestDoubleEncoding(options RequestOptions) {
 	}
 
 	w.WaitAllDone()
+	p.finish()
 }
 
-// requestHttpVersions makes HTTP requests using a list of HTTP versions from a file and prints the results. If server responds with a unique version it is because is not accepting the version provided.
+// curlAvailable checks if curl is installed and accessible in PATH.
+var curlChecked bool
+var curlExists bool
+
+func isCurlAvailable() bool {
+	if curlChecked {
+		return curlExists
+	}
+	curlChecked = true
+	_, err := exec.LookPath("curl")
+	curlExists = err == nil
+	return curlExists
+}
+
+// requestHttpVersions makes HTTP requests using a list of HTTP versions from a file and prints the results.
 func requestHttpVersions(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━━━━ HTTP VERSIONS ━━━━━━━━━━━━━━━━")
+
+	if !isCurlAvailable() {
+		log.Printf("[!] Skipping HTTP versions technique: curl not found in PATH")
+		return
+	}
 
 	httpVersions := []string{"--http1.0"}
 	proxyValue := ""
@@ -651,10 +941,9 @@ func requestHttpVersions(options RequestOptions) {
 		res := curlRequest(options.uri, proxyValue, version)
 		printResponse(res, "http-versions")
 	}
-
 }
 
-func curlRequest(url string, proxy string, httpVersion string) Result {
+func curlRequest(uri string, proxy string, httpVersion string) Result {
 	args := []string{"-i", "-s", httpVersion}
 	args = append(args, "-H", "User-Agent:")
 	args = append(args, "-H", "Accept:")
@@ -667,11 +956,11 @@ func curlRequest(url string, proxy string, httpVersion string) Result {
 		args = append(args, "-L")
 	}
 	args = append(args, "--insecure")
-	args = append(args, url)
+	args = append(args, uri)
 	cmd := exec.Command("curl", args...)
 	out, err := cmd.Output()
 	if err != nil {
-		log.Printf("Curl command failed: %v\n", err)
+		log.Printf("[!] Curl command failed: %v", err)
 		return Result{}
 	}
 
@@ -694,7 +983,7 @@ func parseCurlOutput(output string, httpVersion string) Result {
 	}
 
 	if serverResponse == "" {
-		log.Println("No valid HTTP server response found")
+		log.Println("[!] No valid HTTP server response found in curl output")
 		return Result{}
 	}
 
@@ -706,19 +995,19 @@ func parseCurlOutput(output string, httpVersion string) Result {
 
 	lines := strings.SplitN(serverResponse, "\n", 2)
 	if len(lines) < 1 {
-		log.Println("Invalid server response format:", serverResponse)
+		log.Printf("[!] Invalid server response format: %s", serverResponse)
 		return Result{}
 	}
 
 	parts := strings.SplitN(lines[0], " ", 3)
 	if len(parts) < 2 || !strings.HasPrefix(parts[0], "HTTP/") {
-		log.Println("Invalid status line:", lines[0])
+		log.Printf("[!] Invalid status line: %s", lines[0])
 		return Result{}
 	}
 
-	statusCode, err := strconv.Atoi(parts[1])
+	statusCode, err := strconv.Atoi(strings.TrimSpace(parts[1]))
 	if err != nil {
-		log.Printf("Error parsing status code: %v\n", err)
+		log.Printf("[!] Error parsing status code: %v", err)
 		return Result{}
 	}
 
@@ -730,7 +1019,7 @@ func parseCurlOutput(output string, httpVersion string) Result {
 	}
 }
 
-// requestPathCaseSwitching makes HTTP requests by capitalizing each letter in the last part of the URI and try to use URL encoded characters.
+// requestPathCaseSwitching makes HTTP requests by capitalizing each letter in the last part of the URI.
 func requestPathCaseSwitching(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━ PATH CASE SWITCHING ━━━━━━━━━━━━━")
 
@@ -751,12 +1040,14 @@ func requestPathCaseSwitching(options RequestOptions) {
 	pathCombinations := generateCaseCombinations(uripath)
 	selectedPaths := selectRandomCombinations(pathCombinations, 20)
 	w := goccm.New(maxGoroutines)
+	p := newProgress("path-case-switching", len(selectedPaths))
 
 	for _, path := range selectedPaths {
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
 		go func(path string) {
 			defer w.Done()
+			defer p.done()
 
 			var fullpath string
 			if strings.HasSuffix(options.uri, "/") {
@@ -765,9 +1056,13 @@ func requestPathCaseSwitching(options RequestOptions) {
 				fullpath = baseuri + "/" + path
 			}
 
-			statusCode, response, err := request(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, response, err := requestWithRetry(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
+				if errors.Is(err, ErrRateLimited) {
+					return
+				}
 				log.Println(err)
+				return
 			}
 
 			result := Result{
@@ -782,6 +1077,7 @@ func requestPathCaseSwitching(options RequestOptions) {
 	}
 
 	w.WaitAllDone()
+	p.finish()
 }
 
 // randomLine take a random line from a file
@@ -831,6 +1127,24 @@ func joinURL(base string, path string) string {
 	return base + path
 }
 
+// validateURI checks that the URI is a valid HTTP(S) URL.
+func validateURI(uri string) error {
+	if uri == "" {
+		return fmt.Errorf("URI is empty")
+	}
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return fmt.Errorf("invalid URI %q: %w", uri, err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("invalid URI scheme %q (must be http or https): %s", parsed.Scheme, uri)
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("URI has no host: %s", uri)
+	}
+	return nil
+}
+
 // setupRequestOptions configures and returns RequestOptions based on the provided parameters.
 func setupRequestOptions(uri, proxy, userAgent string, reqHeaders []string, bypassIP, folder, method string, verbose bool, techniques []string, banner, rateLimit bool, timeout int, redirect, randomAgent bool) RequestOptions {
 	// Set up proxy if provided.
@@ -841,7 +1155,8 @@ func setupRequestOptions(uri, proxy, userAgent string, reqHeaders []string, bypa
 	}
 	userProxy, err := url.Parse(proxy)
 	if err != nil {
-		log.Fatalf("Error parsing proxy URL: %v", err)
+		log.Printf("[!] Error parsing proxy URL: %v, continuing without proxy", err)
+		userProxy = &url.URL{}
 	}
 
 	// Check if URI has trailing slash, if not add it.
@@ -919,6 +1234,12 @@ func resetMaps() {
 	}
 	uniqueResultsByTechMutex.Unlock()
 
+	techSignatureCountsMutex.Lock()
+	for k := range techSignatureCounts {
+		delete(techSignatureCounts, k)
+	}
+	techSignatureCountsMutex.Unlock()
+
 	for k := range verbTamperingResults {
 		delete(verbTamperingResults, k)
 	}
@@ -930,20 +1251,27 @@ func executeTechniques(options RequestOptions) {
 		switch tech {
 		case "verbs":
 			requestMethods(options)
+			printSuppressedSummary("verb-tampering")
 		case "verbs-case":
 			requestMethodsCaseSwitching(options)
+			printSuppressedSummary("verb-tampering-case")
 		case "headers":
 			requestHeaders(options)
+			printSuppressedSummary("headers")
 		case "endpaths":
 			requestEndPaths(options)
+			printSuppressedSummary("endpaths")
 		case "midpaths":
 			requestMidPaths(options)
+			printSuppressedSummary("midpaths")
 		case "double-encoding":
 			requestDoubleEncoding(options)
+			printSuppressedSummary("double-encoding")
 		case "http-versions":
 			requestHttpVersions(options)
 		case "path-case":
 			requestPathCaseSwitching(options)
+			printSuppressedSummary("path-case-switching")
 		default:
 			fmt.Printf("Unrecognized technique. %s\n", tech)
 			fmt.Print("Available techniques: verbs, verbs-case, headers, endpaths, midpaths, double-encoding, http-versions, path-case\n")
@@ -953,7 +1281,15 @@ func executeTechniques(options RequestOptions) {
 
 // requester is the main function that runs all the tests.
 func requester(uri string, proxy string, userAgent string, reqHeaders []string, bypassIP string, folder string, method string, verbose bool, techniques []string, banner bool, rateLimit bool, timeout int, redirect bool, randomAgent bool) {
-	_verbose = verbose
+	setVerbose(verbose)
+	setDefaultSc(0)
+	setDefaultRespCl(0)
+
+	// Validate URI before proceeding
+	if err := validateURI(uri); err != nil {
+		log.Printf("[!] %v", err)
+		return
+	}
 
 	options := setupRequestOptions(uri, proxy, userAgent, reqHeaders, bypassIP, folder, method, verbose, techniques, banner, rateLimit, timeout, redirect, randomAgent)
 
@@ -966,9 +1302,11 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 	// Display configuration and perform auto-calibration
 	showInfo(options)
 
-	// Auto-calibrate
+	// Auto-calibrate with multi-sample tolerance
 	if options.autocalibrate {
-		defaultCl = runAutocalibrate(options)
+		avgCl, tolerance := runAutocalibrate(options)
+		setDefaultCl(avgCl)
+		setCalibTolerance(tolerance)
 	}
 
 	requestDefault(options)
