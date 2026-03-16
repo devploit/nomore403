@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
@@ -33,6 +34,9 @@ var (
 	verbose       bool
 	statusCodes   []string
 	uniqueOutput  bool
+	outputFile     string
+	jsonOutput     bool
+	payloadPosition string
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -46,11 +50,23 @@ var rootCmd = &cobra.Command{
 			folder = "payloads"
 		}
 
+		// Initialize output writer if -o flag is set
+		if outputFile != "" {
+			if err := initOutputWriter(outputFile); err != nil {
+				log.Printf("[!] Error opening output file: %v", err)
+				return
+			}
+			defer closeOutputWriter()
+		}
+
 		fi, err := os.Stdin.Stat()
 		if err != nil {
 			log.Printf("[!] Error reading stdin: %v", err)
 			return
 		}
+		// Ensure JSON output is flushed at the end if writing to stdout
+		defer flushJSONToStdout()
+
 		if (fi.Mode() & os.ModeCharDevice) == 0 {
 			bytes, err := io.ReadAll(os.Stdin)
 			if err != nil {
@@ -74,7 +90,11 @@ var rootCmd = &cobra.Command{
 					_ = cmd.Help()
 					return
 				}
-				requester(uri, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, technique, nobanner, rateLimit, timeout, redirect, randomAgent)
+				// Check if -u value is a file containing URLs
+				urls := readURLsFromInput(uri)
+				for _, u := range urls {
+					requester(u, proxy, userAgent, reqHeaders, bypassIP, folder, httpMethod, verbose, technique, nobanner, rateLimit, timeout, redirect, randomAgent)
+				}
 			}
 		}
 	},
@@ -109,12 +129,53 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&redirect, "redirect", "r", false, "Automatically follow redirects in responses.")
 	rootCmd.PersistentFlags().StringVarP(&requestFile, "request-file", "", "", "Load request configuration and flags from a specified file.")
 	rootCmd.PersistentFlags().StringSliceVarP(&statusCodes, "status", "", []string{}, "Filter output by comma-separated status codes (e.g., 200,301,403)")
-	rootCmd.PersistentFlags().StringSliceVarP(&technique, "technique", "k", []string{"verbs", "verbs-case", "headers", "endpaths", "midpaths", "double-encoding", "http-versions", "path-case"}, "Specify one or more attack techniques to use (e.g., headers,path-case).")
+	rootCmd.PersistentFlags().StringSliceVarP(&technique, "technique", "k", []string{"verbs", "verbs-case", "headers", "endpaths", "midpaths", "double-encoding", "unicode", "http-versions", "path-case"}, "Specify one or more attack techniques to use (e.g., headers,path-case,unicode).")
 	rootCmd.PersistentFlags().IntVarP(&timeout, "timeout", "", 6000, "Specify a max timeout time in ms.")
 	rootCmd.PersistentFlags().BoolVarP(&uniqueOutput, "unique", "", false, "Show unique output based on status code and response length.")
-	rootCmd.PersistentFlags().StringVarP(&uri, "uri", "u", "", "Specify the target URL for the request.")
+	rootCmd.PersistentFlags().StringVarP(&uri, "uri", "u", "", "Specify the target URL or a file containing URLs (one per line).")
 	rootCmd.PersistentFlags().StringVarP(&userAgent, "user-agent", "a", "", "Specify a custom User-Agent string for requests (default: 'nomore403').")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output for detailed request/response logging (not based on auto-calibrate).")
+	rootCmd.PersistentFlags().StringVarP(&outputFile, "output", "o", "", "Save results to the specified file.")
+	rootCmd.PersistentFlags().BoolVarP(&jsonOutput, "json", "", false, "Output results in JSON format.")
+	rootCmd.PersistentFlags().StringVarP(&payloadPosition, "payload-position", "p", "", "Marker in URL indicating where to insert payloads (e.g., §). Use in URL like: -u 'http://example.com/§100§/admin'.")
+}
+
+// readURLsFromInput checks if the input is a file path containing URLs.
+// If it is, returns all URLs from the file. Otherwise returns the input as a single URL.
+func readURLsFromInput(input string) []string {
+	// If input looks like a URL (has scheme), treat it as a single URL
+	if strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") {
+		return []string{input}
+	}
+
+	// Try to open as a file
+	file, err := os.Open(input)
+	if err != nil {
+		// Not a file, treat as a URL
+		return []string{input}
+	}
+	defer file.Close()
+
+	var urls []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		urls = append(urls, line)
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("[!] Error reading URL file: %v", err)
+		return []string{input}
+	}
+
+	if len(urls) == 0 {
+		return []string{input}
+	}
+
+	log.Printf("[*] Loaded %d URLs from %s", len(urls), input)
+	return urls
 }
 
 // initConfig reads in config file and ENV variables if set.

@@ -28,21 +28,23 @@ type Result struct {
 }
 
 type RequestOptions struct {
-	uri           string
-	headers       []header
-	method        string
-	proxy         *url.URL
-	userAgent     string
-	redirect      bool
-	folder        string
-	bypassIP      string
-	timeout       int
-	rateLimit     bool
-	techniques    []string
-	verbose       bool
-	reqHeaders    []string
-	banner        bool
-	autocalibrate bool
+	uri              string
+	headers          []header
+	method           string
+	proxy            *url.URL
+	userAgent        string
+	redirect         bool
+	folder           string
+	bypassIP         string
+	timeout          int
+	rateLimit        bool
+	techniques       []string
+	verbose          bool
+	reqHeaders       []string
+	banner           bool
+	autocalibrate    bool
+	payloadPositions []string // extracted marked segments from URL template
+	uriTemplate      string  // original URI with markers for payload injection
 }
 
 // Thread-safe globals using atomic operations.
@@ -140,6 +142,7 @@ func printResponse(result Result, technique string) {
 	// If verbose mode is enabled, directly print the result
 	if getVerbose() || technique == "http-versions" {
 		printResult(result)
+		writeResultToOutput(result, technique)
 		return
 	}
 
@@ -205,6 +208,7 @@ func printResponse(result Result, technique string) {
 
 	// Print the result after all filters are applied
 	printResult(result)
+	writeResultToOutput(result, technique)
 }
 
 // printSuppressedSummary prints a summary of suppressed results for a technique.
@@ -305,7 +309,7 @@ func showInfo(options RequestOptions) {
 	dim := color.New(color.Faint).SprintFunc()
 	val := color.New(color.FgWhite, color.Bold).SprintFunc()
 
-	fmt.Println(color.MagentaString("━━━━━━━━━━━━━━━━━ NOMORE403 ━━━━━━━━━━━━━━━━━━"))
+	fmt.Println(color.MagentaString("━━━━━━━━━━━━━━━━━━━━━━ NOMORE403 ━━━━━━━━━━━━━━━━━━━━━━━"))
 	fmt.Printf("  %s %s\n", dim("Target:"), val(options.uri))
 
 	// Row 1: Method + User-Agent
@@ -797,6 +801,10 @@ func requestMidPaths(options RequestOptions) {
 	}
 
 	baseURL := parsedURL.Scheme + "://" + parsedURL.Host
+	queryStr := ""
+	if parsedURL.RawQuery != "" {
+		queryStr = "?" + parsedURL.RawQuery
+	}
 	w := goccm.New(maxGoroutines)
 	p := newProgress("midpaths", len(lines))
 
@@ -811,6 +819,7 @@ func requestMidPaths(options RequestOptions) {
 			if trailingSlash {
 				fullpath += "/"
 			}
+			fullpath += queryStr
 
 			statusCode, response, err := requestWithRetry(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
@@ -875,9 +884,12 @@ func requestDoubleEncoding(options RequestOptions) {
 		singleEncoded := fmt.Sprintf("%%%X", c)
 		doubleEncoded := url.QueryEscape(singleEncoded)
 
-		modifiedPathStr := originalPath[:i] + doubleEncoded + originalPath[i+1:]
+		modifiedPathStr := originalPath[:i] + doubleEncoded + originalPath[i+len(string(c)):]
 
 		encodedUri := fmt.Sprintf("%s://%s%s", parsedURL.Scheme, parsedURL.Host, modifiedPathStr)
+		if parsedURL.RawQuery != "" {
+			encodedUri += "?" + parsedURL.RawQuery
+		}
 
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 		w.Wait()
@@ -902,6 +914,205 @@ func requestDoubleEncoding(options RequestOptions) {
 			}
 			printResponse(result, "double-encoding")
 		}(encodedUri, c)
+	}
+
+	w.WaitAllDone()
+	p.finish()
+}
+
+// requestUnicodeEncoding makes HTTP requests using Unicode/overlong UTF-8 encoded paths
+func requestUnicodeEncoding(options RequestOptions) {
+	color.Cyan("\n━━━━━━━━━━━━━ UNICODE ENCODING ━━━━━━━━━━━━━━━")
+
+	parsedURL, err := url.Parse(options.uri)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	originalPath := parsedURL.Path
+	if len(originalPath) == 0 || originalPath == "/" {
+		log.Println("No path to modify")
+		return
+	}
+
+	baseURL := parsedURL.Scheme + "://" + parsedURL.Host
+	query := ""
+	if parsedURL.RawQuery != "" {
+		query = "?" + parsedURL.RawQuery
+	}
+
+	// Generate Unicode/overlong encoding variations for the path
+	var payloads []string
+
+	// Overlong UTF-8 slash: %c0%af (overlong encoding of /)
+	// Unicode slash: %u002f
+	// These bypass filters that only decode standard percent-encoding
+	overlongReplacements := []struct {
+		original string
+		encoded  string
+	}{
+		{"/", "%c0%af"},
+		{"/", "%u002f"},
+		{"/", "%e0%80%af"},
+		{"/", "%f0%80%80%af"},
+		{"/", "%252f"},
+	}
+
+	for _, r := range overlongReplacements {
+		// Replace each slash in the path (except the leading one) with the encoded version
+		// Only add if there are internal slashes to replace (otherwise it's a no-op duplicate)
+		if len(originalPath) > 1 && strings.Contains(originalPath[1:], r.original) {
+			modified := "/" + strings.ReplaceAll(originalPath[1:], r.original, r.encoded)
+			payloads = append(payloads, baseURL+modified+query)
+		}
+	}
+
+	// Also try encoding individual characters in the last path segment
+	segments := strings.Split(strings.Trim(originalPath, "/"), "/")
+	lastSegment := segments[len(segments)-1]
+	basePath := "/"
+	if len(segments) > 1 {
+		basePath = "/" + strings.Join(segments[:len(segments)-1], "/") + "/"
+	}
+
+	for i, c := range lastSegment {
+		// Unicode encoding: %uXXXX
+		unicodeEncoded := fmt.Sprintf("%%u%04x", c)
+		modified := basePath + lastSegment[:i] + unicodeEncoded + lastSegment[i+len(string(c)):]
+		payloads = append(payloads, baseURL+modified+query)
+
+		// Overlong UTF-8 2-byte encoding for ASCII chars:
+		// byte1 = 0xC0 | (char >> 6), byte2 = 0x80 | (char & 0x3F)
+		// e.g., '/' (0x2F) → %c0%af, 'a' (0x61) → %c1%a1
+		if c < 128 {
+			byte1 := byte(0xC0) | byte(c>>6)
+			byte2 := byte(0x80) | byte(c&0x3F)
+			overlongEncoded := fmt.Sprintf("%%%02x%%%02x", byte1, byte2)
+			modified = basePath + lastSegment[:i] + overlongEncoded + lastSegment[i+len(string(c)):]
+			payloads = append(payloads, baseURL+modified+query)
+		}
+	}
+
+	w := goccm.New(maxGoroutines)
+	p := newProgress("unicode-encoding", len(payloads))
+
+	for _, payload := range payloads {
+		time.Sleep(time.Duration(delay) * time.Millisecond)
+		w.Wait()
+		go func(payload string) {
+			defer w.Done()
+			defer p.done()
+
+			statusCode, response, err := requestWithRetry(options.method, payload, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			if err != nil {
+				if errors.Is(err, ErrRateLimited) {
+					return
+				}
+				log.Println(err)
+				return
+			}
+
+			contentLength := len(response)
+			if isCalibrationMatch(contentLength) {
+				return
+			}
+
+			result := Result{
+				line:          payload,
+				statusCode:    statusCode,
+				contentLength: contentLength,
+				defaultReq:    false,
+			}
+			printResponse(result, "unicode-encoding")
+		}(payload)
+	}
+
+	w.WaitAllDone()
+	p.finish()
+}
+
+// requestPayloadPositions makes HTTP requests injecting payloads at custom marked positions.
+func requestPayloadPositions(options RequestOptions) {
+	color.Cyan("\n━━━━━━━━━━━━ PAYLOAD POSITIONS ━━━━━━━━━━━━━━━")
+
+	if len(options.payloadPositions) == 0 || options.uriTemplate == "" {
+		log.Println("[!] No payload positions defined. Use --payload-position with markers in the URL (e.g., -p '§' -u 'http://example.com/§100§/admin').")
+		return
+	}
+
+	// Load payloads from endpaths and midpaths files
+	var payloads []string
+	endPaths, err := parseFile(options.folder + "/endpaths")
+	if err == nil {
+		payloads = append(payloads, endPaths...)
+	}
+	midPaths, err := parseFile(options.folder + "/midpaths")
+	if err == nil {
+		payloads = append(payloads, midPaths...)
+	}
+
+	if len(payloads) == 0 {
+		log.Println("[!] No payloads found for position injection")
+		return
+	}
+
+	// For each position, replace the marked value with each payload
+	type workItem struct {
+		uri      string
+		position int
+		payload  string
+	}
+	var items []workItem
+
+	for posIdx := range options.payloadPositions {
+		for _, payload := range payloads {
+			// Build the URI by replacing the specific position placeholder with the payload
+			uri := options.uriTemplate
+			for i, origValue := range options.payloadPositions {
+				ph := payloadPlaceholder(i)
+				if i == posIdx {
+					uri = strings.Replace(uri, ph, payload, 1)
+				} else {
+					uri = strings.Replace(uri, ph, origValue, 1)
+				}
+			}
+			items = append(items, workItem{uri: uri, position: posIdx, payload: payload})
+		}
+	}
+
+	w := goccm.New(maxGoroutines)
+	p := newProgress("payload-position", len(items))
+
+	for _, item := range items {
+		time.Sleep(time.Duration(delay) * time.Millisecond)
+		w.Wait()
+		go func(item workItem) {
+			defer w.Done()
+			defer p.done()
+
+			statusCode, response, err := requestWithRetry(options.method, item.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			if err != nil {
+				if errors.Is(err, ErrRateLimited) {
+					return
+				}
+				log.Println(err)
+				return
+			}
+
+			contentLength := len(response)
+			if isCalibrationMatch(contentLength) {
+				return
+			}
+
+			result := Result{
+				line:          item.uri,
+				statusCode:    statusCode,
+				contentLength: contentLength,
+				defaultReq:    false,
+			}
+			printResponse(result, "payload-position")
+		}(item)
 	}
 
 	w.WaitAllDone()
@@ -1031,6 +1242,10 @@ func requestPathCaseSwitching(options RequestOptions) {
 
 	baseuri := parsedURL.Scheme + "://" + parsedURL.Host
 	uripath := strings.Trim(parsedURL.Path, "/")
+	queryStr := ""
+	if parsedURL.RawQuery != "" {
+		queryStr = "?" + parsedURL.RawQuery
+	}
 
 	if len(uripath) == 0 {
 		log.Println("No path to modify")
@@ -1055,6 +1270,7 @@ func requestPathCaseSwitching(options RequestOptions) {
 			} else {
 				fullpath = baseuri + "/" + path
 			}
+			fullpath += queryStr
 
 			statusCode, response, err := requestWithRetry(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
@@ -1201,7 +1417,7 @@ func setupRequestOptions(uri, proxy, userAgent string, reqHeaders []string, bypa
 		}
 	}
 
-	return RequestOptions{
+	opts := RequestOptions{
 		uri:           uri,
 		headers:       headers,
 		method:        method,
@@ -1218,6 +1434,53 @@ func setupRequestOptions(uri, proxy, userAgent string, reqHeaders []string, bypa
 		banner:        banner,
 		autocalibrate: !verbose,
 	}
+
+	// Parse payload position markers from URI
+	if payloadPosition != "" {
+		positions, template := parsePayloadPositions(uri, payloadPosition)
+		if len(positions) > 0 {
+			opts.payloadPositions = positions
+			opts.uriTemplate = template
+		}
+	}
+
+	return opts
+}
+
+// payloadPlaceholderPrefix is used to create unique placeholders that won't collide with URL content.
+const payloadPlaceholderPrefix = "\x00PP_"
+
+// parsePayloadPositions extracts marked segments from a URI template.
+// Given a marker like "§" and URI "http://example.com/§100§/user/§200§",
+// it returns the marked values ["100", "200"] and a template with internal placeholders.
+func parsePayloadPositions(uri, marker string) ([]string, string) {
+	var positions []string
+	template := uri
+	idx := 0
+
+	for {
+		start := strings.Index(template, marker)
+		if start == -1 {
+			break
+		}
+		rest := template[start+len(marker):]
+		end := strings.Index(rest, marker)
+		if end == -1 {
+			break
+		}
+		value := rest[:end]
+		positions = append(positions, value)
+		placeholder := fmt.Sprintf("%s%d\x00", payloadPlaceholderPrefix, idx)
+		template = template[:start] + placeholder + rest[end+len(marker):]
+		idx++
+	}
+
+	return positions, template
+}
+
+// payloadPlaceholder returns the placeholder string for a given index.
+func payloadPlaceholder(idx int) string {
+	return fmt.Sprintf("%s%d\x00", payloadPlaceholderPrefix, idx)
 }
 
 // resetMaps clears all result tracking maps before starting new requests.
@@ -1272,9 +1535,15 @@ func executeTechniques(options RequestOptions) {
 		case "path-case":
 			requestPathCaseSwitching(options)
 			printSuppressedSummary("path-case-switching")
+		case "unicode":
+			requestUnicodeEncoding(options)
+			printSuppressedSummary("unicode-encoding")
+		case "payload-position":
+			requestPayloadPositions(options)
+			printSuppressedSummary("payload-position")
 		default:
 			fmt.Printf("Unrecognized technique. %s\n", tech)
-			fmt.Print("Available techniques: verbs, verbs-case, headers, endpaths, midpaths, double-encoding, http-versions, path-case\n")
+			fmt.Print("Available techniques: verbs, verbs-case, headers, endpaths, midpaths, double-encoding, unicode, http-versions, path-case\n")
 		}
 	}
 }
@@ -1292,6 +1561,26 @@ func requester(uri string, proxy string, userAgent string, reqHeaders []string, 
 	}
 
 	options := setupRequestOptions(uri, proxy, userAgent, reqHeaders, bypassIP, folder, method, verbose, techniques, banner, rateLimit, timeout, redirect, randomAgent)
+
+	// Auto-add payload-position technique if positions were detected
+	if len(options.payloadPositions) > 0 {
+		hasTech := false
+		for _, t := range options.techniques {
+			if t == "payload-position" {
+				hasTech = true
+				break
+			}
+		}
+		if !hasTech {
+			options.techniques = append(options.techniques, "payload-position")
+		}
+		// Build clean URI with original values (no markers) for other techniques
+		cleanURI := options.uriTemplate
+		for i, val := range options.payloadPositions {
+			cleanURI = strings.Replace(cleanURI, payloadPlaceholder(i), val, 1)
+		}
+		options.uri = cleanURI
+	}
 
 	resetMaps()
 

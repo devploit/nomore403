@@ -71,12 +71,20 @@ func resetTestState() {
 	setVerbose(true) // Show all results in tests
 	setDefaultCl(0)
 	setCalibTolerance(0)
+	setDefaultSc(0)
+	setDefaultRespCl(0)
 	maxGoroutines = 5
 	delay = 0
 	redirect = false
 	statusCodes = nil
 	uniqueOutput = false
 	nobanner = true
+	jsonOutput = false
+	payloadPosition = ""
+	outputWriter = nil
+	jsonResultsMutex.Lock()
+	jsonResults = nil
+	jsonResultsMutex.Unlock()
 	resetMaps()
 }
 
@@ -642,6 +650,212 @@ func TestRequestFilePreservesQueryString(t *testing.T) {
 	}
 	if !foundQueryString {
 		t.Errorf("query string was stripped from request file URL. Captured URIs: %v", capturedURIs)
+	}
+}
+
+func TestRequestFileParsesPostWithBody(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var capturedMethods []string
+	var capturedURIs []string
+	var capturedHeaders []http.Header
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedMethods = append(capturedMethods, r.Method)
+		capturedURIs = append(capturedURIs, r.URL.RequestURI())
+		capturedHeaders = append(capturedHeaders, r.Header.Clone())
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	}))
+	defer ts.Close()
+
+	// Simulate a Burp-style POST request with HTTP/2 and body
+	rawRequest := fmt.Sprintf("POST /api/v1/data HTTP/2\r\nHost: %s\r\nContent-Type: application/json\r\nX-Custom: test-value\r\n\r\n{\"key\":\"value\"}",
+		strings.TrimPrefix(ts.URL, "http://"))
+
+	dir := t.TempDir()
+	reqFile := filepath.Join(dir, "request.txt")
+	if err := os.WriteFile(reqFile, []byte(rawRequest), 0o600); err != nil {
+		t.Fatalf("write request file: %v", err)
+	}
+
+	payloadsDir := setupPayloadsDir(t)
+	folder = payloadsDir
+	nobanner = true
+
+	loadFlagsFromRequestFile(reqFile, true, true, []string{"verbs"}, false)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(capturedMethods) == 0 {
+		t.Fatal("expected requests from request file, got 0")
+	}
+
+	// Default request should use the original POST method
+	foundPost := false
+	for _, m := range capturedMethods {
+		if m == "POST" {
+			foundPost = true
+			break
+		}
+	}
+	if !foundPost {
+		t.Errorf("expected POST method to be used, got methods: %v", capturedMethods)
+	}
+
+	// URI should be correctly parsed
+	foundURI := false
+	for _, uri := range capturedURIs {
+		if strings.Contains(uri, "/api/v1/data") {
+			foundURI = true
+			break
+		}
+	}
+	if !foundURI {
+		t.Errorf("expected /api/v1/data in URIs, got: %v", capturedURIs)
+	}
+
+	// Custom headers should be extracted
+	foundCustomHeader := false
+	for _, h := range capturedHeaders {
+		if h.Get("X-Custom") == "test-value" {
+			foundCustomHeader = true
+			break
+		}
+	}
+	if !foundCustomHeader {
+		t.Errorf("expected X-Custom header, not found in captured headers")
+	}
+}
+
+func TestRequestFileHandlesHTTP20(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var capturedURIs []string
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedURIs = append(capturedURIs, r.URL.RequestURI())
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	}))
+	defer ts.Close()
+
+	// Test with "HTTP/2.0" (another common Burp format)
+	rawRequest := fmt.Sprintf("GET /admin/panel HTTP/2.0\r\nHost: %s\r\n\r\n",
+		strings.TrimPrefix(ts.URL, "http://"))
+
+	dir := t.TempDir()
+	reqFile := filepath.Join(dir, "request.txt")
+	if err := os.WriteFile(reqFile, []byte(rawRequest), 0o600); err != nil {
+		t.Fatalf("write request file: %v", err)
+	}
+
+	payloadsDir := setupPayloadsDir(t)
+	folder = payloadsDir
+	nobanner = true
+
+	loadFlagsFromRequestFile(reqFile, true, true, []string{"verbs"}, false)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(capturedURIs) == 0 {
+		t.Fatal("expected requests from HTTP/2.0 request file, got 0")
+	}
+
+	foundURI := false
+	for _, uri := range capturedURIs {
+		if strings.Contains(uri, "/admin/panel") {
+			foundURI = true
+			break
+		}
+	}
+	if !foundURI {
+		t.Errorf("expected /admin/panel in URIs, got: %v", capturedURIs)
+	}
+}
+
+func TestPayloadPositionsSendsRequests(t *testing.T) {
+	resetTestState()
+
+	ts, getRequests := testServer(t, nil)
+	defer ts.Close()
+
+	payloadsDir := setupPayloadsDir(t)
+
+	opts := RequestOptions{
+		uri:              ts.URL + "/100/admin",
+		headers:          []header{{"User-Agent", "test"}},
+		method:           "GET",
+		proxy:            &url.URL{},
+		folder:           payloadsDir,
+		timeout:          5000,
+		rateLimit:        false,
+		redirect:         false,
+		verbose:          true,
+		payloadPositions: []string{"100"},
+		uriTemplate:      ts.URL + "/" + payloadPlaceholder(0) + "/admin",
+	}
+
+	requestPayloadPositions(opts)
+
+	reqs := getRequests()
+	if len(reqs) == 0 {
+		t.Fatal("expected payload position requests to be sent, got 0")
+	}
+
+	// Check that some requests replace "100" with payloads
+	foundModified := false
+	for _, r := range reqs {
+		path := r.URL.Path
+		if !strings.Contains(path, "/100/") && strings.Contains(path, "admin") {
+			foundModified = true
+			break
+		}
+	}
+	if !foundModified {
+		paths := make([]string, 0, len(reqs))
+		for _, r := range reqs {
+			paths = append(paths, r.URL.RequestURI())
+		}
+		t.Errorf("expected modified position paths, got: %v", paths)
+	}
+}
+
+func TestUnicodeEncodingSendsEncodedPaths(t *testing.T) {
+	resetTestState()
+
+	ts, getRequests := testServer(t, nil)
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestUnicodeEncoding(opts)
+
+	reqs := getRequests()
+	if len(reqs) == 0 {
+		t.Fatal("expected unicode encoding requests to be sent, got 0")
+	}
+
+	// Should have multiple requests: overlong slash replacements + per-char encoding
+	if len(reqs) < 5 {
+		t.Errorf("expected at least 5 unicode encoding requests, got %d", len(reqs))
 	}
 }
 

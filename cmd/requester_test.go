@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -39,6 +40,35 @@ func TestParseFileTrimsAndSkipsEmpty(t *testing.T) {
 
 	if len(got) != 2 || got[0] != "foo" || got[1] != "bar" {
 		t.Fatalf("unexpected parseFile result: %#v", got)
+	}
+}
+
+func TestParsePayloadPositions(t *testing.T) {
+	positions, template := parsePayloadPositions("http://example.com/§100§/user/§200§", "§")
+	if len(positions) != 2 {
+		t.Fatalf("expected 2 positions, got %d: %v", len(positions), positions)
+	}
+	if positions[0] != "100" || positions[1] != "200" {
+		t.Errorf("unexpected positions: %v", positions)
+	}
+	// Template should contain internal placeholders for both positions
+	if !strings.Contains(template, payloadPlaceholderPrefix) {
+		t.Errorf("template should contain placeholder prefix, got: %q", template)
+	}
+	// Reconstruct original URL from template + positions
+	reconstructed := template
+	for i, val := range positions {
+		reconstructed = strings.Replace(reconstructed, payloadPlaceholder(i), val, 1)
+	}
+	if reconstructed != "http://example.com/100/user/200" {
+		t.Errorf("reconstructed URL mismatch: %q", reconstructed)
+	}
+}
+
+func TestParsePayloadPositions_NoMarkers(t *testing.T) {
+	positions, _ := parsePayloadPositions("http://example.com/admin", "§")
+	if len(positions) != 0 {
+		t.Errorf("expected 0 positions, got %d", len(positions))
 	}
 }
 

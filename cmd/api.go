@@ -204,8 +204,13 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, tec
 		return
 	}
 
-	// Down HTTP/2 to HTTP/1.1
-	firstLine := strings.Replace(temp[0], "HTTP/2", "HTTP/1.1", 1)
+	// Down HTTP/2 to HTTP/1.1 (handles both "HTTP/2" and "HTTP/2.0")
+	firstLine := temp[0]
+	if strings.Contains(firstLine, "HTTP/2.0") {
+		firstLine = strings.Replace(firstLine, "HTTP/2.0", "HTTP/1.1", 1)
+	} else if strings.Contains(firstLine, "HTTP/2") {
+		firstLine = strings.Replace(firstLine, "HTTP/2", "HTTP/1.1", 1)
+	}
 	content = []byte(strings.Join(append([]string{firstLine}, temp[1:]...), "\n"))
 
 	reqReader := strings.NewReader(string(content))
