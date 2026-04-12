@@ -64,6 +64,7 @@ If you install with `go install`, the `payloads/` directory is not installed aut
 - Go 1.24 or later to build from source
 - `curl` available in `PATH` for techniques that depend on it, such as:
   - `http-versions`
+  - `http-parser`
   - `absolute-uri`
 
 Most techniques work without `curl`.
@@ -109,36 +110,25 @@ Write machine-readable output:
 ## Example Output
 
 ```text
-━━━━━━━━━━━━━━━━━━━━━━ NOMORE403 ━━━━━━━━━━━━━━━━━━━━━━━
-  Target: https://target.tld/admin
-  Method: GET User-Agent: nomore403
-  Timeout: 6000ms Delay: 0ms
-  Proxy: - Bypass IP: -
-  Flags: -
-  Frontend: AWS ELB/ALB
-  Techniques: headers, absolute-uri, path-normalization, ...
-  Payloads: payloads
+target: https://target.tld/admin   method: GET   frontend: AWS ELB/ALB   payloads: payloads
 
-━━━━━━━━━━━━━━━ AUTO-CALIBRATION RESULTS ━━━━━━━━━━━━━━━
-[✔] Calibration samples: 3
-[✔] Status Code: 404
-[✔] Avg Content Length: 1245 bytes (tolerance: ±50)
-[✔] Fragment baseline: 703 bytes
+calib: 404 | 1245b | ±50 | frag 703b
 
-━━━━━━━━━━━━━━━ DEFAULT REQUEST ━━━━━━━━━━━━━━
-[  5 LOW]   Default request         403->403      520 bytes https://target.tld/admin
+BASELINE
+  default       403    520 bytes    https://target.tld/admin
 
-━━━━━━━━━━━━━━━━━━ HEADERS ━━━━━━━━━━━━━━━━━━━
-[ 82 HIGH]  Header injection        403=>200     2048 bytes X-Original-URL -> path
-[ 61 MED]   Header injection        403=>302      128 bytes X-Rewrite-URL -> path
-  ... and 4 more collapsed as similar parser behavior
+FINDINGS
+  hdr-ip     100! 200   2048 bytes   X-Original-URL: /
+  abs-uri     26. 403    236 bytes   request-target: https://target.tld/admin
+  http        18. 400    122 bytes   HTTP/2
 
-━━━━━━━━━━━ INTERESTING VARIATIONS ━━━━━━━━━━━
-[26 LOW]    Absolute URI            403->403      236b
-         why: len Δ284
-        item: request-target: https://target.tld/admin
-        curl: curl --request-target 'https://target.tld/admin' \
-              https://target.tld/admin
+no visible results: 17 techniques
+
+━━━━━━━━━━━━━━ LIKELY BYPASS ━━━━━━━━━━━━━━━━━
+[!100 HIGH] Header injection (IP) 403=>200    2048b
+         why: status 403->200, len Δ1528, body changed, type changed
+        item: X-Original-URL: /
+        curl: curl -i -sS -k -H 'User-Agent: nomore403' -H 'X-Original-URL: /' 'https://target.tld/admin'
 ```
 
 ## How to Read the Output
@@ -149,19 +139,18 @@ Each visible line is a response that differed enough from the baseline to surviv
 
 Typical fields:
 
-- `score`: `0-100`
-- `likelihood`: `LOW`, `MED`, or `HIGH`
-- technique name
-- baseline transition, for example `403=>200`
+- technique alias, for example `hdr-ip`, `abs-uri`, or `parser`
+- compact score marker such as `18.`, `61+`, or `100!`
+- final response status
 - response size
 - item or payload used
 
-### Status transitions
+### Summary transitions
 
-The transition shows how a technique changed the baseline response:
+The final summaries show baseline-to-result transitions:
 
 - `403=>200` usually deserves immediate attention
-- `403=>302` is often interesting, especially for internal redirects or auth gateways
+- `403=>302` can be interesting, but may still resolve back into an auth barrier
 - `403->400` or `403->404` usually indicate parser or routing differences rather than a bypass
 
 ### Summaries
@@ -170,11 +159,11 @@ At the end of the run, `nomore403` prints:
 
 - `LIKELY BYPASS`
   - highest-scoring results
-  - includes replay status and reproducible `curl`
+  - includes reproducible `curl`
 - `INTERESTING VARIATIONS`
   - meaningful parser or routing differences that are worth manual review
-- `NO VISIBLE RESULTS`
-  - techniques that ran but produced no output after filtering
+- `no visible results`
+  - count of techniques that ran but produced no visible output after filtering
 
 ## Scoring Model
 
@@ -187,6 +176,7 @@ The tool generally rewards:
 - large body-length changes
 - body hash changes
 - `Location` changes
+- anomalous redirects that do not appear to resolve into a login or denied flow
 - differences that survive replay
 
 The tool generally down-ranks:
@@ -194,6 +184,7 @@ The tool generally down-ranks:
 - near-identical responses
 - repeated parser noise
 - unstable replay results
+- empty-body redirects that appear to lead back into access control
 - many `400` and `404` cases unless the response also changes substantially
 
 Recommended interpretation:
@@ -231,7 +222,10 @@ The tool runs all techniques by default unless you specify `-k`.
 ### Header- and trust-based mutations
 
 - `headers`
-  - IP trust headers, simple headers, and Host variations
+  - umbrella technique covering:
+    - IP trust headers
+    - simple headers
+    - Host variations
 - `hop-by-hop`
   - hop-by-hop stripping tricks using `Connection`
 - `header-confusion`
@@ -267,7 +261,9 @@ The tool runs all techniques by default unless you specify `-k`.
 ### Frontend and wire-format mutations
 
 - `http-versions`
-  - compares `HTTP/1.0` and `HTTP/2`
+  - compares the same request across `HTTP/1.0` and `HTTP/2`
+- `http-parser`
+  - sends a deliberately minimal `curl` request to expose client/frontend parser differences separately from `http-versions`
 - `absolute-uri`
   - uses absolute-form request targets through `curl --request-target`
 - `raw-duplicates`
@@ -437,6 +433,8 @@ Key flags:
   - minimum score for `LIKELY BYPASS`
 - `--variation-score-min`
   - minimum score for `INTERESTING VARIATIONS`
+- `--top`
+  - maximum number of entries per summary section, or `0` to disable summaries
 
 ## Output Formats
 
@@ -476,6 +474,7 @@ You can customize these files to fit your targets or workflow.
 
 - raw HTTP techniques do not currently support upstream proxies
 - scoring is heuristic and can produce false positives or false negatives
+- redirect scoring currently uses heuristics on the immediate redirect response, not a fully followed redirect chain
 - some techniques depend on target-specific behavior and may appear noisy on heavily normalized stacks
 - `curl`-based techniques require `curl` in `PATH`
 

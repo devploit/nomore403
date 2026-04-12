@@ -388,13 +388,11 @@ func runAutocalibrate(options RequestOptions) (int, int) {
 		}
 	}
 
-	fmt.Println(color.MagentaString("\n━━━━━━━━━━━━━━━ AUTO-CALIBRATION RESULTS ━━━━━━━━━━━━━━━"))
-	fmt.Printf("[✔] Calibration samples: %d\n", len(samples))
-	fmt.Printf("[✔] Status Code: %d\n", lastStatusCode)
-	fmt.Printf("[✔] Avg Content Length: %d bytes (tolerance: ±%d)\n", avgCl, tolerance)
+	summary := fmt.Sprintf("%d | %db | ±%d", lastStatusCode, avgCl, tolerance)
 	if getFragmentCl() > 0 {
-		fmt.Printf("[✔] Fragment baseline: %d bytes\n", getFragmentCl())
+		summary += fmt.Sprintf(" | frag %db", getFragmentCl())
 	}
+	fmt.Printf("\n%s %s\n", color.New(color.FgHiBlack, color.Bold).Sprint("calib:"), color.New(color.FgHiBlack).Sprint(summary))
 
 	return avgCl, tolerance
 }

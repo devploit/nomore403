@@ -1321,6 +1321,122 @@ func TestScoreResultKeepsStrong400AsVariation(t *testing.T) {
 	}
 }
 
+func TestScoreResultRewardsSameStatusBodyDelta(t *testing.T) {
+	resetTestState()
+	setGlobalBaseline(ResponseInfo{
+		statusCode:    403,
+		contentLength: 520,
+		bodyHash:      "aaa",
+		contentType:   "text/html",
+		server:        "nginx",
+	})
+	setTechniqueBaseline("headers-ip", globalBaseline())
+
+	result := Result{
+		line:          "X-Forwarded-For: 127.0.0.1",
+		statusCode:    403,
+		contentLength: 1911,
+		bodyHash:      "bbb",
+		contentType:   "application/json",
+		server:        "envoy",
+		technique:     "headers-ip",
+	}
+
+	score := scoreResult(result)
+	if score < 55 {
+		t.Fatalf("expected strong same-status anomaly to reach medium/high territory, got %d", score)
+	}
+}
+
+func TestScoreReasonFlagsRedirectAnomaly(t *testing.T) {
+	resetTestState()
+	setGlobalBaseline(ResponseInfo{
+		statusCode:    403,
+		contentLength: 520,
+		bodyHash:      "aaa",
+		contentType:   "text/html",
+	})
+	setTechniqueBaseline("absolute-uri", globalBaseline())
+
+	result := Result{
+		line:          "request-target: https://example.com/admin",
+		statusCode:    302,
+		contentLength: 30,
+		bodyHash:      "bbb",
+		location:      "/dashboard",
+		contentType:   "text/html",
+		technique:     "absolute-uri",
+	}
+
+	reason := scoreReason(result)
+	if !strings.Contains(reason, "redirect anomaly") {
+		t.Fatalf("expected redirect anomaly in score reason, got %q", reason)
+	}
+
+	score := scoreResult(result)
+	if score < 55 {
+		t.Fatalf("expected redirect anomaly to produce a meaningful score, got %d", score)
+	}
+}
+
+func TestScoreResultPenalizesSameStatusEmptyBody(t *testing.T) {
+	resetTestState()
+	setGlobalBaseline(ResponseInfo{
+		statusCode:    403,
+		contentLength: 118,
+		bodyHash:      "aaa",
+		contentType:   "text/html",
+	})
+	setTechniqueBaseline("verb-tampering", globalBaseline())
+
+	result := Result{
+		line:          "HEAD",
+		statusCode:    403,
+		contentLength: 0,
+		bodyHash:      "bbb",
+		contentType:   "",
+		technique:     "verb-tampering",
+	}
+
+	score := scoreResult(result)
+	if score >= 25 {
+		t.Fatalf("expected same-status empty-body response to stay low-score, got %d", score)
+	}
+}
+
+func TestScoreResultPenalizesAccessControlRedirects(t *testing.T) {
+	resetTestState()
+	setGlobalBaseline(ResponseInfo{
+		statusCode:    403,
+		contentLength: 118,
+		bodyHash:      "aaa",
+		contentType:   "text/html",
+	})
+	setTechniqueBaseline("endpaths", globalBaseline())
+
+	result := Result{
+		line:          "https://example.com/admin/.",
+		statusCode:    302,
+		contentLength: 0,
+		bodyHash:      "",
+		location:      "/403",
+		contentType:   "",
+		technique:     "endpaths",
+	}
+
+	if strings.Contains(scoreReason(result), "redirect anomaly") {
+		t.Fatalf("did not expect access-control redirect to be tagged as anomaly")
+	}
+
+	score := scoreResult(result)
+	if score >= 25 {
+		t.Fatalf("expected access-control redirect to stay low-score, got %d", score)
+	}
+	if !strings.Contains(scoreReason(result), "redirect to access control") {
+		t.Fatalf("expected access-control redirect reason, got %q", scoreReason(result))
+	}
+}
+
 func TestForwardedTrustSendsForwardedHeaders(t *testing.T) {
 	resetTestState()
 

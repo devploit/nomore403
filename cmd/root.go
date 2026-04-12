@@ -48,6 +48,7 @@ var (
 	rawHTTP           bool
 	topScoreMin       int
 	variationScoreMin int
+	topLimit          int
 	techniqueExplicit bool
 )
 
@@ -143,11 +144,12 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&noCalibrate, "no-calibrate", "", false, "Disable auto-calibration filtering and always compare results against the default request baseline.")
 	rootCmd.PersistentFlags().BoolVarP(&strictCalibrate, "strict-calibrate", "", false, "Use a stricter default-response comparison that also considers body hash and key response headers.")
 	rootCmd.PersistentFlags().StringSliceVarP(&statusCodes, "status", "", []string{}, "Filter output by comma-separated status codes (e.g., 200,301,403)")
-	rootCmd.PersistentFlags().StringSliceVarP(&technique, "technique", "k", []string{"verbs", "verbs-case", "headers", "endpaths", "midpaths", "double-encoding", "unicode", "http-versions", "path-case", "hop-by-hop", "absolute-uri", "method-override", "path-normalization", "suffix-tricks", "header-confusion", "host-override", "forwarded-trust", "proto-confusion", "ip-encoding", "raw-duplicates", "raw-authority", "raw-desync"}, "Specify one or more attack techniques to use (e.g., headers,path-case,unicode).")
+	rootCmd.PersistentFlags().StringSliceVarP(&technique, "technique", "k", []string{"verbs", "verbs-case", "headers", "endpaths", "midpaths", "double-encoding", "unicode", "http-versions", "http-parser", "path-case", "hop-by-hop", "absolute-uri", "method-override", "path-normalization", "suffix-tricks", "header-confusion", "host-override", "forwarded-trust", "proto-confusion", "ip-encoding", "raw-duplicates", "raw-authority", "raw-desync"}, "Specify one or more attack techniques to use (e.g., headers,path-case,unicode).")
 	rootCmd.PersistentFlags().IntVarP(&timeout, "timeout", "", 6000, "Specify a max timeout time in ms.")
 	rootCmd.PersistentFlags().IntVarP(&retryCount, "retry-count", "", 2, "Number of retries for transient errors and rate limiting when retrying is allowed.")
 	rootCmd.PersistentFlags().IntVarP(&retryBackoffMs, "retry-backoff-ms", "", 500, "Base backoff in milliseconds used between retries.")
 	rootCmd.PersistentFlags().IntVarP(&hostDelayMs, "host-delay", "", 0, "Minimum delay in milliseconds between batched targets on the same host.")
+	rootCmd.PersistentFlags().IntVarP(&topLimit, "top", "", 10, "Maximum number of entries to show in each summary section (0 disables top summaries).")
 	rootCmd.PersistentFlags().IntVarP(&topScoreMin, "top-score-min", "", 55, "Minimum score required for a result to appear in the Top Findings summary.")
 	rootCmd.PersistentFlags().IntVarP(&variationScoreMin, "variation-score-min", "", 25, "Minimum score required for a result to appear in the Interesting Variations summary.")
 	rootCmd.PersistentFlags().BoolVarP(&uniqueOutput, "unique", "", false, "Show unique output based on status code and response length.")
