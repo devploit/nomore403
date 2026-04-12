@@ -461,6 +461,9 @@ func requestMethods(options RequestOptions) {
 		log.Printf("[!] Skipping verb tampering: %v", err)
 		return
 	}
+	if len(lines) == 0 {
+		return
+	}
 
 	w := goccm.New(maxGoroutines)
 	var verbTamperingResultsMutex = &sync.Mutex{}
@@ -532,6 +535,10 @@ func requestMethodsCaseSwitching(options RequestOptions) {
 		for _, method := range selectedCombinations {
 			items = append(items, workItem{method, originalContentLength})
 		}
+	}
+
+	if len(items) == 0 {
+		return
 	}
 
 	w := goccm.New(maxGoroutines)
@@ -627,6 +634,10 @@ func requestHeaders(options RequestOptions) {
 	}
 
 	totalRequests := len(combined) + len(simpleHeaders)
+	if totalRequests == 0 {
+		return
+	}
+
 	w := goccm.New(maxGoroutines)
 	p := newProgress("headers", totalRequests)
 
@@ -730,6 +741,9 @@ func requestEndPaths(options RequestOptions) {
 		log.Printf("[!] Skipping endpaths technique: %v", err)
 		return
 	}
+	if len(lines) == 0 {
+		return
+	}
 
 	w := goccm.New(maxGoroutines)
 	p := newProgress("endpaths", len(lines))
@@ -776,6 +790,9 @@ func requestMidPaths(options RequestOptions) {
 	lines, err := parseFile(options.folder + "/midpaths")
 	if err != nil {
 		log.Printf("[!] Skipping midpaths technique: %v", err)
+		return
+	}
+	if len(lines) == 0 {
 		return
 	}
 
@@ -874,6 +891,9 @@ func requestDoubleEncoding(options RequestOptions) {
 		if c != '/' {
 			totalChars++
 		}
+	}
+	if totalChars == 0 {
+		return
 	}
 
 	w := goccm.New(maxGoroutines)
@@ -995,6 +1015,10 @@ func requestUnicodeEncoding(options RequestOptions) {
 			modified = basePath + lastSegment[:i] + overlongEncoded + lastSegment[i+len(string(c)):]
 			payloads = append(payloads, baseURL+modified+query)
 		}
+	}
+
+	if len(payloads) == 0 {
+		return
 	}
 
 	w := goccm.New(maxGoroutines)
