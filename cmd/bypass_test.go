@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -446,8 +447,10 @@ func TestValidateURI(t *testing.T) {
 }
 
 func TestIsCalibrationMatch(t *testing.T) {
+	setVerbose(false)
 	setDefaultCl(1000)
 	setCalibTolerance(50)
+	setFragmentCl(0)
 
 	cases := []struct {
 		cl   int
@@ -475,6 +478,28 @@ func TestIsCalibrationMatch(t *testing.T) {
 	if isCalibrationMatch(1000) {
 		t.Error("isCalibrationMatch should return false when defaultCl is 0")
 	}
+
+	// Test fragment baseline matching
+	setDefaultCl(1000)
+	setFragmentCl(2000)
+	if !isCalibrationMatch(2000) {
+		t.Error("isCalibrationMatch should match fragment baseline")
+	}
+	if !isCalibrationMatch(2025) {
+		t.Error("isCalibrationMatch should match within tolerance of fragment baseline")
+	}
+	if isCalibrationMatch(2051) {
+		t.Error("isCalibrationMatch should not match outside tolerance of fragment baseline")
+	}
+	setFragmentCl(0)
+
+	// Test verbose mode bypasses calibration
+	setVerbose(true)
+	setDefaultCl(1000)
+	if isCalibrationMatch(1000) {
+		t.Error("isCalibrationMatch should return false in verbose mode")
+	}
+	setVerbose(false)
 }
 
 func TestIsTransientError(t *testing.T) {
@@ -892,5 +917,709 @@ func TestVerbTamperingPreservesQueryString(t *testing.T) {
 		if !strings.Contains(rawURI, "token=abc123") || !strings.Contains(rawURI, "role=user") {
 			t.Errorf("query string lost in verb tampering request: %s", rawURI)
 		}
+	}
+}
+
+func TestHeadersIncludesHostVariations(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var capturedHosts []string
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedHosts = append(capturedHosts, r.Host)
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	dir := setupPayloadsDir(t)
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		folder:    dir,
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestHeaders(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Should include Host variations (port suffixes, trailing dot, case switching)
+	foundPortVariation := false
+	foundTrailingDot := false
+	for _, h := range capturedHosts {
+		if strings.Contains(h, ":80") || strings.Contains(h, ":443") || strings.Contains(h, ":8080") {
+			foundPortVariation = true
+		}
+		if strings.HasSuffix(h, ".") {
+			foundTrailingDot = true
+		}
+	}
+
+	if !foundPortVariation {
+		t.Error("expected Host header port variations (e.g., :80, :443) to be sent")
+	}
+	if !foundTrailingDot {
+		t.Error("expected Host header trailing dot variation to be sent")
+	}
+}
+
+func TestHopByHopSendsRequests(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var capturedConnHeaders []string
+	var capturedTargetHeaders []string
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedConnHeaders = append(capturedConnHeaders, r.Header.Get("Connection"))
+		// Check that the target header is also sent with a bypass value
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			capturedTargetHeaders = append(capturedTargetHeaders, "X-Forwarded-For: "+xff)
+		}
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			capturedTargetHeaders = append(capturedTargetHeaders, "X-Real-IP: "+xri)
+		}
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestHopByHop(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(capturedConnHeaders) == 0 {
+		t.Fatal("expected hop-by-hop requests to be sent, got 0")
+	}
+
+	// Connection header should list a security-relevant header for hop-by-hop stripping
+	foundHopByHop := false
+	for _, h := range capturedConnHeaders {
+		if strings.Contains(h, "X-Forwarded-For") || strings.Contains(h, "X-Real-IP") || strings.Contains(h, "CF-Connecting-IP") {
+			foundHopByHop = true
+			break
+		}
+	}
+	if !foundHopByHop {
+		t.Error("expected at least one Connection header containing a security-relevant header name")
+	}
+
+	// The target header should also be sent with a bypass value
+	if len(capturedTargetHeaders) == 0 {
+		t.Error("expected hop-by-hop to also send the target header with a bypass value")
+	}
+}
+
+func TestMethodOverrideQuerySendsRequests(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var capturedMethods []string
+	var capturedURIs []string
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedMethods = append(capturedMethods, r.Method)
+		capturedURIs = append(capturedURIs, r.URL.RequestURI())
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestMethodOverrideQuery(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(capturedMethods) == 0 {
+		t.Fatal("expected method override requests to be sent, got 0")
+	}
+
+	// All requests should use POST method
+	for _, m := range capturedMethods {
+		if m != "POST" {
+			t.Errorf("expected POST method for _method override, got %s", m)
+		}
+	}
+
+	// Check that _method query parameter is present
+	found_method := false
+	for _, uri := range capturedURIs {
+		if strings.Contains(uri, "_method=") {
+			found_method = true
+			break
+		}
+	}
+	if !found_method {
+		t.Error("expected _method query parameter in at least one request")
+	}
+}
+
+func TestNewTechniquesDoNotCrashOnRateLimit(t *testing.T) {
+	resetTestState()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, "Rate limited")
+	}))
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: true,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	// None of these should crash
+	requestHopByHop(opts)
+	requestMethodOverrideQuery(opts)
+}
+
+func TestMethodOverrideHeadersSendsOverrideHeaders(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var captured []string
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		for _, name := range []string{"X-HTTP-Method-Override", "X-HTTP-Method", "X-Method-Override"} {
+			if v := r.Header.Get(name); v != "" {
+				captured = append(captured, name+": "+v)
+			}
+		}
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestMethodOverrideHeaders(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(captured) == 0 {
+		t.Fatal("expected method override headers to be sent")
+	}
+}
+
+func TestMethodOverrideBodySendsBody(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var bodies []string
+	var contentTypes []string
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(body))
+		contentTypes = append(contentTypes, r.Header.Get("Content-Type"))
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestMethodOverrideBody(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(bodies) == 0 {
+		t.Fatal("expected method override body requests to be sent")
+	}
+	foundForm := false
+	foundJSON := false
+	for i, body := range bodies {
+		if strings.Contains(body, "_method=") && strings.Contains(contentTypes[i], "application/x-www-form-urlencoded") {
+			foundForm = true
+		}
+		if strings.Contains(body, `"_method"`) && strings.Contains(contentTypes[i], "application/json") {
+			foundJSON = true
+		}
+	}
+	if !foundForm {
+		t.Error("expected form _method body to be sent")
+	}
+	if !foundJSON {
+		t.Error("expected json _method body to be sent")
+	}
+}
+
+func TestRawDuplicatesSendsDuplicateHeaders(t *testing.T) {
+	resetTestState()
+	rawHTTP = true
+	defer func() { rawHTTP = false }()
+
+	var mu sync.Mutex
+	var duplicateSeen bool
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		if len(r.Header.Values("X-Forwarded-For")) > 1 || len(r.Header.Values("X-Original-URL")) > 1 {
+			duplicateSeen = true
+		}
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+		rawHTTP:   true,
+	}
+
+	requestRawDuplicates(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !duplicateSeen {
+		t.Error("expected raw duplicates technique to send duplicate headers")
+	}
+}
+
+func TestBuildCurlCommandIncludesBodyAndHeaders(t *testing.T) {
+	cmd := buildCurlCommand("POST", "https://example.com/admin", []header{{"X-Test", "1"}}, "_method=DELETE", true, &url.URL{Scheme: "http", Host: "127.0.0.1:8080"})
+	if !strings.Contains(cmd, "-X 'POST'") {
+		t.Fatalf("expected curl command to include method, got %s", cmd)
+	}
+	if !strings.Contains(cmd, "--data '_method=DELETE'") {
+		t.Fatalf("expected curl command to include body, got %s", cmd)
+	}
+	if !strings.Contains(cmd, "-H 'X-Test: 1'") {
+		t.Fatalf("expected curl command to include header, got %s", cmd)
+	}
+}
+
+func TestScoreResultRewardsBetterSignals(t *testing.T) {
+	resetTestState()
+	setDefaultSc(403)
+	setDefaultRespCl(100)
+	setTechniqueBaseline("headers", ResponseInfo{
+		statusCode:    403,
+		contentLength: 100,
+		bodyHash:      "aaa",
+		contentType:   "text/plain",
+	})
+
+	result := Result{
+		line:          "X-Original-URL: /admin",
+		statusCode:    200,
+		contentLength: 500,
+		bodyHash:      "bbb",
+		contentType:   "text/html",
+		technique:     "headers",
+	}
+	score := scoreResult(result)
+	if score < 70 {
+		t.Fatalf("expected strong candidate score, got %d", score)
+	}
+	if classifyLikelihood(score) != "high" {
+		t.Fatalf("expected high likelihood, got %s", classifyLikelihood(score))
+	}
+}
+
+func TestScoreResultKeepsStrong400AsVariation(t *testing.T) {
+	resetTestState()
+	setDefaultSc(403)
+	setDefaultRespCl(520)
+	setCalibTolerance(50)
+	setTechniqueBaseline("midpaths", ResponseInfo{
+		statusCode:    403,
+		contentLength: 520,
+		bodyHash:      "aaa",
+		contentType:   "text/html",
+	})
+
+	result := Result{
+		line:          "/..%00/web.config",
+		statusCode:    400,
+		contentLength: 122,
+		bodyHash:      "bbb",
+		contentType:   "text/html",
+		technique:     "midpaths",
+	}
+
+	score := scoreResult(result)
+	if score < 25 {
+		t.Fatalf("expected a strong 400 variation to keep a non-trivial score, got %d", score)
+	}
+	if score >= 55 {
+		t.Fatalf("expected a strong 400 variation not to look like likely bypass, got %d", score)
+	}
+}
+
+func TestForwardedTrustSendsForwardedHeaders(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var sawForwarded bool
+	var sawClientIP bool
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		if r.Header.Get("Forwarded") != "" {
+			sawForwarded = true
+		}
+		if r.Header.Get("Client-IP") != "" || r.Header.Get("X-Client-Ip") != "" {
+			sawClientIP = true
+		}
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestForwardedTrust(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !sawForwarded || !sawClientIP {
+		t.Fatalf("expected forwarded trust technique to send structured forwarding headers")
+	}
+}
+
+func TestSuffixTricksSendsSuffixVariants(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var capturedURIs []string
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedURIs = append(capturedURIs, r.URL.RequestURI())
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin/panel",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestSuffixTricks(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(capturedURIs) == 0 {
+		t.Fatal("expected suffix trick requests to be sent")
+	}
+	foundSuffix := false
+	foundQuery := false
+	for _, uri := range capturedURIs {
+		if strings.Contains(uri, ".json") || strings.Contains(uri, ";index.html") {
+			foundSuffix = true
+		}
+		if strings.Contains(uri, "download=1") || strings.Contains(uri, "format=json") {
+			foundQuery = true
+		}
+	}
+	if !foundSuffix || !foundQuery {
+		t.Fatalf("expected suffix and query variants, got %v", capturedURIs)
+	}
+}
+
+func TestHostOverrideSendsModernHostHeaders(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var sawOverride bool
+	var sawForwardedHost bool
+	var sawHostMutation bool
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		if r.Header.Get("X-HTTP-Host-Override") != "" || r.Header.Get("X-Host") != "" {
+			sawOverride = true
+		}
+		if r.Header.Get("X-Forwarded-Host") != "" {
+			sawForwardedHost = true
+		}
+		if strings.HasSuffix(r.Host, ".") || r.Host == strings.ToUpper(strings.TrimSuffix(r.Host, ".")) {
+			sawHostMutation = true
+		}
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestHostOverride(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !sawOverride || !sawForwardedHost || !sawHostMutation {
+		t.Fatalf("expected host override technique to send override, forwarded-host, and host mutation variants")
+	}
+}
+
+func TestProtoConfusionSendsProtoHeaders(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var sawProto bool
+	var sawPort bool
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		if r.Header.Get("X-Forwarded-Proto") != "" || r.Header.Get("X-Forwarded-Protocol") != "" {
+			sawProto = true
+		}
+		if r.Header.Get("X-Forwarded-Port") != "" {
+			sawPort = true
+		}
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestProtoConfusion(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !sawProto || !sawPort {
+		t.Fatalf("expected proto confusion technique to send proto and port trust headers")
+	}
+}
+
+func TestIPEncodingHeadersSendsEncodedLocalhostVariants(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var sawIntegerIP bool
+	var sawIPv6 bool
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		for _, value := range []string{
+			r.Header.Get("X-Forwarded-For"),
+			r.Header.Get("Client-IP"),
+			r.Header.Get("True-Client-IP"),
+			r.Header.Get("X-Real-Ip"),
+			r.Header.Get("Cf-Connecting-Ip"),
+		} {
+			if value == "2130706433" {
+				sawIntegerIP = true
+			}
+			if value == "[::1]" || value == "::ffff:127.0.0.1" {
+				sawIPv6 = true
+			}
+		}
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestIPEncodingHeaders(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !sawIntegerIP || !sawIPv6 {
+		t.Fatalf("expected ip encoding technique to send encoded localhost variants")
+	}
+}
+
+func TestRawAuthoritySendsDuplicateHostHeaders(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var authorityManipulated bool
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		if len(r.Header.Values("X-Forwarded-Host")) > 1 || len(r.Header.Values("Forwarded")) > 1 || r.Host == "localhost" {
+			authorityManipulated = true
+		}
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestRawAuthority(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !authorityManipulated {
+		t.Fatalf("expected raw authority technique to manipulate host authority")
+	}
+}
+
+func TestCrossTechniqueDedupCollapsesSimilarFamilies(t *testing.T) {
+	resetTestState()
+	setVerbose(false)
+	setDefaultSc(403)
+	setDefaultRespCl(520)
+	setCalibTolerance(50)
+	setTechniqueBaseline("headers", ResponseInfo{
+		statusCode:    403,
+		contentLength: 520,
+		bodyHash:      "aaa",
+		contentType:   "text/html",
+	})
+	setTechniqueBaseline("header-confusion", ResponseInfo{
+		statusCode:    403,
+		contentLength: 520,
+		bodyHash:      "aaa",
+		contentType:   "text/html",
+	})
+
+	first := Result{
+		line:          "X-Original-URL -> path",
+		statusCode:    400,
+		contentLength: 122,
+		bodyHash:      "bbb",
+		contentType:   "text/html",
+	}
+	second := Result{
+		line:          "X-Rewrite-URL -> path",
+		statusCode:    400,
+		contentLength: 122,
+		bodyHash:      "bbb",
+		contentType:   "text/html",
+	}
+
+	printResponse(first, "headers")
+	printResponse(second, "header-confusion")
+
+	if suppressedCrossTechniqueFamilies["header-confusion"] == 0 {
+		t.Fatalf("expected similar cross-technique result to be collapsed")
 	}
 }

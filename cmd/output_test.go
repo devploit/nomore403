@@ -88,8 +88,8 @@ func TestOutputWriter_JSON(t *testing.T) {
 		t.Fatalf("initOutputWriter: %v", err)
 	}
 
-	writeResultToOutput(Result{line: "GET /admin", statusCode: 200, contentLength: 1234}, "verb-tampering")
-	writeResultToOutput(Result{line: "X-Forwarded-For: 127.0.0.1", statusCode: 403, contentLength: 500}, "headers")
+	writeResultToOutput(Result{line: "GET /admin", statusCode: 200, contentLength: 1234, score: 90, likelihood: "high", reproCurl: "curl ..."}, "verb-tampering")
+	writeResultToOutput(Result{line: "X-Forwarded-For: 127.0.0.1", statusCode: 403, contentLength: 500, score: 20, likelihood: "low"}, "headers")
 
 	closeOutputWriter()
 
@@ -110,7 +110,49 @@ func TestOutputWriter_JSON(t *testing.T) {
 	if results[0].StatusCode != 200 || results[0].Technique != "verb-tampering" {
 		t.Errorf("unexpected first result: %+v", results[0])
 	}
+	if results[0].Score != 90 || results[0].Likelihood != "high" || results[0].ReproCurl != "curl ..." {
+		t.Errorf("expected enriched fields in first result, got %+v", results[0])
+	}
 	if results[1].StatusCode != 403 || results[1].Technique != "headers" {
 		t.Errorf("unexpected second result: %+v", results[1])
+	}
+}
+
+func TestOutputWriter_JSONL(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "output.jsonl")
+
+	oldJSONL := jsonLines
+	jsonLines = true
+	defer func() { jsonLines = oldJSONL }()
+
+	jsonResultsMutex.Lock()
+	jsonResults = nil
+	jsonResultsMutex.Unlock()
+
+	if err := initOutputWriter(outPath); err != nil {
+		t.Fatalf("initOutputWriter: %v", err)
+	}
+
+	writeResultToOutput(Result{line: "GET /admin", statusCode: 200, contentLength: 1234, score: 88, likelihood: "high"}, "verb-tampering")
+	writeResultToOutput(Result{line: "X-Original-URL: /", statusCode: 302, contentLength: 12, score: 67, likelihood: "medium"}, "header-confusion")
+	closeOutputWriter()
+
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 jsonl lines, got %d", len(lines))
+	}
+
+	var first JSONResult
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatalf("unmarshal first jsonl line: %v", err)
+	}
+	if first.Score != 88 || first.Likelihood != "high" {
+		t.Fatalf("unexpected first jsonl result: %+v", first)
 	}
 }

@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -112,36 +114,46 @@ type header struct {
 // requestWithRetry makes an HTTP request with retry logic and exponential backoff.
 // It retries up to maxRetries times on transient errors (timeouts, connection errors).
 // On HTTP 429, it retries with backoff if rateLimit is false; returns ErrRateLimited if rateLimit is true.
-// Returns (statusCode, responseBodySize, error).
-func requestWithRetry(method, uri string, headers []header, proxy *url.URL, rateLimit bool, timeout int, redirect bool) (int, int, error) {
-	const maxRetries = 2
+func requestWithRetry(method, uri string, headers []header, proxy *url.URL, rateLimit bool, timeout int, redirect bool) (ResponseInfo, error) {
+	return requestWithRetryBody(method, uri, headers, "", proxy, rateLimit, timeout, redirect)
+}
+
+func requestWithRetryBody(method, uri string, headers []header, body string, proxy *url.URL, rateLimit bool, timeout int, redirect bool) (ResponseInfo, error) {
+	maxRetries := retryCount
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+	backoffMs := retryBackoffMs
+	if backoffMs <= 0 {
+		backoffMs = 500
+	}
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			backoff := time.Duration(1<<uint(attempt)) * 500 * time.Millisecond
+			backoff := time.Duration(1<<uint(attempt-1)) * time.Duration(backoffMs) * time.Millisecond
 			time.Sleep(backoff)
 		}
 
-		statusCode, respSize, err := request(method, uri, headers, proxy, timeout, redirect)
+		resp, err := requestBody(method, uri, headers, body, proxy, timeout, redirect)
 		if err == nil {
-			if statusCode == 429 {
+			if resp.statusCode == 429 {
 				if rateLimit {
-					return statusCode, respSize, ErrRateLimited
+					return resp, ErrRateLimited
 				}
 				lastErr = fmt.Errorf("HTTP 429 rate limited on attempt %d", attempt+1)
 				continue
 			}
-			return statusCode, respSize, nil
+			return resp, nil
 		}
 
 		lastErr = err
 		if !isTransientError(err) {
-			return 0, 0, err
+			return ResponseInfo{}, err
 		}
 	}
 
-	return 0, 0, fmt.Errorf("request failed after %d attempts: %w", maxRetries+1, lastErr)
+	return ResponseInfo{}, fmt.Errorf("request failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 
 // isTransientError returns true for errors that are likely transient and worth retrying.
@@ -167,14 +179,23 @@ func isTransientError(err error) bool {
 }
 
 // request makes a single HTTP request using headers `headers` and proxy `proxy`.
-// Returns (statusCode, responseBodySize, error).
-func request(method, uri string, headers []header, proxy *url.URL, timeout int, redirect bool) (int, int, error) {
+func request(method, uri string, headers []header, proxy *url.URL, timeout int, redirect bool) (ResponseInfo, error) {
+	return requestBody(method, uri, headers, "", proxy, timeout, redirect)
+}
+
+func requestBody(method, uri string, headers []header, body string, proxy *url.URL, timeout int, redirect bool) (ResponseInfo, error) {
 	if method == "" {
 		method = "GET"
 	}
 
 	if proxy == nil || len(proxy.Host) == 0 {
 		proxy = nil
+	}
+
+	// net/http and url.Parse do not accept legacy IIS-style %uXXXX escapes.
+	// Route those requests through the raw client so the request target is sent as-is.
+	if strings.Contains(strings.ToLower(uri), "%u") && proxy == nil && !redirect {
+		return rawRequest(method, uri, rawRequestTarget(uri), headers, body, timeout)
 	}
 
 	client := getClient(proxy, timeout, redirect)
@@ -186,26 +207,36 @@ func request(method, uri string, headers []header, proxy *url.URL, timeout int, 
 		// the raw path so the server receives it as-is.
 		parsedURL, err = parseRawURL(uri)
 		if err != nil {
-			return 0, 0, fmt.Errorf("invalid URL: %q", uri)
+			return ResponseInfo{}, fmt.Errorf("invalid URL: %q", uri)
 		}
 	} else {
 		parsedURL.RawPath = parsedURL.EscapedPath()
 	}
 
-	req := &http.Request{
-		Method: method,
-		Host:   parsedURL.Host,
-		URL:    parsedURL,
-		Header: make(http.Header),
+	req, err := http.NewRequest(method, parsedURL.String(), strings.NewReader(body))
+	if err != nil {
+		return ResponseInfo{}, err
 	}
+	req.Host = parsedURL.Host
+	req.URL = parsedURL
+	req.Header = make(http.Header)
 
 	for _, header := range headers {
-		req.Header.Add(header.key, header.value)
+		// Go's net/http ignores req.Header["Host"] — it uses req.Host instead.
+		// Set req.Host directly so Host header variations are actually sent.
+		if strings.EqualFold(header.key, "Host") {
+			req.Host = header.value
+		} else {
+			req.Header.Add(header.key, header.value)
+		}
+	}
+	if body != "" && req.Header.Get("Content-Length") == "" {
+		req.Header.Set("Content-Length", strconv.Itoa(len(body)))
 	}
 
 	res, err := client.Do(req)
 	if err != nil {
-		return 0, 0, err
+		return ResponseInfo{}, err
 	}
 	defer func() {
 		if cerr := res.Body.Close(); cerr != nil {
@@ -213,10 +244,19 @@ func request(method, uri string, headers []header, proxy *url.URL, timeout int, 
 		}
 	}()
 
-	// Read and discard body to get size and allow connection reuse
-	bodySize, _ := io.Copy(io.Discard, res.Body)
-
-	return res.StatusCode, int(bodySize), nil
+	bodySize, bodyHash, _ := captureBodySignature(res.Body)
+	return ResponseInfo{
+		statusCode:    res.StatusCode,
+		contentLength: bodySize,
+		bodyHash:      bodyHash,
+		location:      res.Header.Get("Location"),
+		contentType:   res.Header.Get("Content-Type"),
+		server:        res.Header.Get("Server"),
+		via:           res.Header.Get("Via"),
+		xCache:        res.Header.Get("X-Cache"),
+		poweredBy:     res.Header.Get("X-Powered-By"),
+		cfRay:         res.Header.Get("CF-Ray"),
+	}, nil
 }
 
 // loadFlagsFromRequestFile parse an HTTP request and configure the necessary flags for an execution
@@ -288,13 +328,13 @@ func runAutocalibrate(options RequestOptions) (int, int) {
 	var lastStatusCode int
 	for _, path := range calibrationPaths {
 		calibrationURI := baseURI + path
-		statusCode, respSize, err := requestWithRetry("GET", calibrationURI, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+		resp, err := requestWithRetry("GET", calibrationURI, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 		if err != nil {
 			log.Printf("[!] Error during calibration request (%s): %v\n", path, err)
 			continue
 		}
-		lastStatusCode = statusCode
-		samples = append(samples, respSize)
+		lastStatusCode = resp.statusCode
+		samples = append(samples, resp.contentLength)
 	}
 
 	if len(samples) == 0 {
@@ -326,10 +366,35 @@ func runAutocalibrate(options RequestOptions) (int, int) {
 		tolerance = maxDeviation * 2
 	}
 
+	// Fragment calibration: request URI#fragment to baseline fragment-stripped responses.
+	// Since # is a fragment separator, the server receives the parent path instead of the
+	// target path. This catches false positives from any payload that accidentally creates
+	// a fragment URL (e.g., midpath "#" → domain.com/#path → requests domain.com/).
+	parsedURI, parseErr := url.Parse(options.uri)
+	if parseErr == nil && parsedURI.Path != "" && parsedURI.Path != "/" {
+		// Build parent path: /api/admin → /api/
+		parentPath := parsedURI.Path
+		if strings.HasSuffix(parentPath, "/") {
+			parentPath = parentPath[:len(parentPath)-1]
+		}
+		lastSlash := strings.LastIndex(parentPath, "/")
+		if lastSlash >= 0 {
+			parentPath = parentPath[:lastSlash+1]
+		}
+		fragmentURI := parsedURI.Scheme + "://" + parsedURI.Host + parentPath + "#calibration_fragment"
+		fragResp, fragErr := requestWithRetry("GET", fragmentURI, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+		if fragErr == nil {
+			setFragmentCl(fragResp.contentLength)
+		}
+	}
+
 	fmt.Println(color.MagentaString("\n━━━━━━━━━━━━━━━ AUTO-CALIBRATION RESULTS ━━━━━━━━━━━━━━━"))
 	fmt.Printf("[✔] Calibration samples: %d\n", len(samples))
 	fmt.Printf("[✔] Status Code: %d\n", lastStatusCode)
 	fmt.Printf("[✔] Avg Content Length: %d bytes (tolerance: ±%d)\n", avgCl, tolerance)
+	if getFragmentCl() > 0 {
+		fmt.Printf("[✔] Fragment baseline: %d bytes\n", getFragmentCl())
+	}
 
 	return avgCl, tolerance
 }
@@ -374,5 +439,150 @@ func parseRawURL(rawURI string) (*url.URL, error) {
 		Host:     host,
 		Opaque:   rawPath,
 		RawQuery: rawQuery,
+	}, nil
+}
+
+func rawRequestTarget(rawURI string) string {
+	idx := strings.Index(rawURI, "://")
+	if idx < 0 {
+		return "/"
+	}
+	rest := rawURI[idx+3:]
+	slashIdx := strings.Index(rest, "/")
+	if slashIdx < 0 {
+		return "/"
+	}
+	target := rest[slashIdx:]
+	if target == "" {
+		return "/"
+	}
+	return target
+}
+
+func captureBodySignature(r io.Reader) (int, string, error) {
+	hasher := fnv.New64a()
+	buf := make([]byte, 4096)
+	total := 0
+
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			total += n
+			_, _ = hasher.Write(buf[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return total, "", err
+		}
+	}
+
+	return total, fmt.Sprintf("%x", hasher.Sum64()), nil
+}
+
+func rawRequest(method, uri string, requestTarget string, headers []header, body string, timeout int) (ResponseInfo, error) {
+	parsedURL, err := url.Parse(uri)
+	if err != nil || parsedURL == nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		parsedURL, err = parseRawURL(uri)
+		if err != nil {
+			return ResponseInfo{}, err
+		}
+	}
+
+	addr := parsedURL.Host
+	if parsedURL.Port() == "" {
+		port := "80"
+		if parsedURL.Scheme == "https" {
+			port = "443"
+		}
+		addr = net.JoinHostPort(parsedURL.Hostname(), port)
+	}
+
+	dialer := &net.Dialer{Timeout: time.Duration(timeout) * time.Millisecond}
+	var conn net.Conn
+	if parsedURL.Scheme == "https" {
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+			InsecureSkipVerify: true,
+			ServerName:         parsedURL.Hostname(),
+		})
+	} else {
+		conn, err = dialer.Dial("tcp", addr)
+	}
+	if err != nil {
+		return ResponseInfo{}, err
+	}
+	defer func() {
+		_ = conn.Close()
+	}()
+	_ = conn.SetDeadline(time.Now().Add(time.Duration(timeout) * time.Millisecond))
+
+	if requestTarget == "" {
+		requestTarget = rawRequestTarget(uri)
+	}
+
+	hasHost := false
+	hasConnection := false
+	hasContentLength := false
+	var builder strings.Builder
+	builder.WriteString(method)
+	builder.WriteString(" ")
+	builder.WriteString(requestTarget)
+	builder.WriteString(" HTTP/1.1\r\n")
+	for _, h := range headers {
+		if strings.EqualFold(h.key, "Host") {
+			hasHost = true
+		}
+		if strings.EqualFold(h.key, "Connection") {
+			hasConnection = true
+		}
+		if strings.EqualFold(h.key, "Content-Length") {
+			hasContentLength = true
+		}
+		builder.WriteString(h.key)
+		builder.WriteString(": ")
+		builder.WriteString(h.value)
+		builder.WriteString("\r\n")
+	}
+	if !hasHost {
+		builder.WriteString("Host: ")
+		builder.WriteString(parsedURL.Host)
+		builder.WriteString("\r\n")
+	}
+	if !hasConnection {
+		builder.WriteString("Connection: close\r\n")
+	}
+	if body != "" && !hasContentLength {
+		builder.WriteString("Content-Length: ")
+		builder.WriteString(strconv.Itoa(len(body)))
+		builder.WriteString("\r\n")
+	}
+	builder.WriteString("\r\n")
+	builder.WriteString(body)
+
+	if _, err := io.WriteString(conn, builder.String()); err != nil {
+		return ResponseInfo{}, err
+	}
+
+	res, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		return ResponseInfo{}, err
+	}
+	defer func() {
+		_ = res.Body.Close()
+	}()
+
+	bodySize, bodyHash, _ := captureBodySignature(res.Body)
+	return ResponseInfo{
+		statusCode:    res.StatusCode,
+		contentLength: bodySize,
+		bodyHash:      bodyHash,
+		location:      res.Header.Get("Location"),
+		contentType:   res.Header.Get("Content-Type"),
+		server:        res.Header.Get("Server"),
+		via:           res.Header.Get("Via"),
+		xCache:        res.Header.Get("X-Cache"),
+		poweredBy:     res.Header.Get("X-Powered-By"),
+		cfRay:         res.Header.Get("CF-Ray"),
 	}, nil
 }

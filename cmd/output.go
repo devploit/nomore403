@@ -13,6 +13,14 @@ type JSONResult struct {
 	ContentLength int    `json:"content_length"`
 	Technique     string `json:"technique"`
 	Payload       string `json:"payload"`
+	Score         int    `json:"score"`
+	Likelihood    string `json:"likelihood"`
+	ScoreReason   string `json:"score_reason,omitempty"`
+	BodyHash      string `json:"body_hash,omitempty"`
+	Location      string `json:"location,omitempty"`
+	ContentType   string `json:"content_type,omitempty"`
+	Server        string `json:"server,omitempty"`
+	ReproCurl     string `json:"repro_curl,omitempty"`
 }
 
 var (
@@ -38,15 +46,33 @@ func closeOutputWriter() {
 		return
 	}
 
-	if jsonOutput {
+	if jsonOutput || jsonLines {
 		jsonResultsMutex.Lock()
-		data, err := json.MarshalIndent(jsonResults, "", "  ")
+		var data []byte
+		var err error
+		if jsonLines {
+			var lines []byte
+			for _, item := range jsonResults {
+				line, marshalErr := json.Marshal(item)
+				if marshalErr != nil {
+					err = marshalErr
+					break
+				}
+				lines = append(lines, line...)
+				lines = append(lines, '\n')
+			}
+			data = lines
+		} else {
+			data, err = json.MarshalIndent(jsonResults, "", "  ")
+			if err == nil {
+				data = append(data, '\n')
+			}
+		}
 		jsonResultsMutex.Unlock()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[!] Error marshaling JSON: %v\n", err)
 		} else {
 			outputWriter.Write(data)
-			outputWriter.Write([]byte("\n"))
 		}
 	}
 
@@ -58,17 +84,25 @@ func closeOutputWriter() {
 // In JSON mode, it accumulates results (thread-safe via jsonResultsMutex).
 // In plain mode, it writes immediately — caller MUST hold printMutex.
 func writeResultToOutput(result Result, technique string) {
-	if outputWriter == nil && !jsonOutput {
+	if outputWriter == nil && !jsonOutput && !jsonLines {
 		return
 	}
 
-	if jsonOutput {
+	if jsonOutput || jsonLines {
 		jsonResultsMutex.Lock()
 		jsonResults = append(jsonResults, JSONResult{
 			StatusCode:    result.statusCode,
 			ContentLength: result.contentLength,
 			Technique:     technique,
 			Payload:       result.line,
+			Score:         result.score,
+			Likelihood:    result.likelihood,
+			ScoreReason:   result.scoreReason,
+			BodyHash:      result.bodyHash,
+			Location:      result.location,
+			ContentType:   result.contentType,
+			Server:        result.server,
+			ReproCurl:     result.reproCurl,
 		})
 		jsonResultsMutex.Unlock()
 
@@ -77,13 +111,16 @@ func writeResultToOutput(result Result, technique string) {
 	}
 
 	if outputWriter != nil {
-		fmt.Fprintf(outputWriter, "%d\t%d bytes\t%s\n", result.statusCode, result.contentLength, result.line)
+		fmt.Fprintf(outputWriter, "%d\t[%d %s]\t%d bytes\t%s\n", result.statusCode, result.score, result.likelihood, result.contentLength, result.line)
+		if result.reproCurl != "" {
+			fmt.Fprintf(outputWriter, "curl\t%s\n", result.reproCurl)
+		}
 	}
 }
 
 // flushJSONToStdout writes JSON results to stdout when no output file is specified.
 func flushJSONToStdout() {
-	if !jsonOutput || outputWriter != nil {
+	if (!jsonOutput && !jsonLines) || outputWriter != nil {
 		return
 	}
 
@@ -94,6 +131,17 @@ func flushJSONToStdout() {
 		return
 	}
 
+	if jsonLines {
+		for _, item := range jsonResults {
+			data, err := json.Marshal(item)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[!] Error marshaling JSON: %v\n", err)
+				return
+			}
+			fmt.Println(string(data))
+		}
+		return
+	}
 	data, err := json.MarshalIndent(jsonResults, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[!] Error marshaling JSON: %v\n", err)

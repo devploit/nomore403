@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://i.imgur.com/F4D1zhr.png" width="350" height="200" alt="logo">
+  <img src="https://i.imgur.com/F4D1zhr.png" width="350" height="200" alt="NoMore403 logo">
 </p>
 
 <h1 align="center">NoMore403</h1>
@@ -13,269 +13,497 @@
   <img alt="Contributions welcome" src="https://img.shields.io/badge/contributions-welcome-brightgreen.svg">
 </p>
 
-## Table of Contents
-- [Introduction](#introduction)
-- [Features](#features)
-- [Implemented Bypass Techniques](#implemented-bypass-techniques)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [How It Works](#how-it-works)
-- [Customization](#customization)
-- [Usage](#usage)
-- [Options](#options)
-- [Common Use Cases](#common-use-cases)
-- [Contributing](#contributing)
-- [Security Considerations](#security-considerations)
-- [License](#license)
-- [Acknowledgments](#acknowledgments)
-- [Contact](#contact)
+`nomore403` is a command-line tool for testing HTTP access-control bypasses and parser inconsistencies around `401`, `403`, and related responses.
 
-## Introduction
+The tool is designed for practical web security work: bug bounty, penetration testing, security reviews, and regression testing of access-control rules. It automates a broad set of request mutations, captures a baseline, filters common false positives, and highlights the responses most likely to represent a meaningful bypass.
 
-`nomore403` is a tool designed to help cybersecurity professionals bypass HTTP 40X errors encountered during web security assessments. It automates various techniques to navigate past access restrictions, from header manipulation to method tampering, with smart output filtering to highlight only the results that matter.
+## What It Does
+
+Given a target URL, `nomore403`:
+
+1. Sends a baseline request to capture the blocked response.
+2. Optionally auto-calibrates against non-existent paths to learn the target's default error behavior.
+3. Runs a set of bypass techniques that mutate the request path, method, headers, or wire format.
+4. Scores and groups the results to reduce noise.
+5. Emits replayable evidence, including `curl` commands for interesting findings.
+
+This tool does not "break authentication" by itself. It helps find differences between how frontends, proxies, WAFs, CDNs, application routers, and backends interpret the same request.
 
 ## Features
 
-- **Auto-calibration**: Multi-sample calibration with tolerance detection to accurately identify successful bypasses
-- **Smart filtering**: Automatically hides results matching the default response, showing only interesting differences
-- **Deduplication**: Groups repeated results per technique, showing up to 3 examples with a summary count
-- **Retry with backoff**: Automatic retries on transient errors (timeouts, connection resets) with exponential backoff
-- **Progress tracking**: Per-technique progress bar on TTY terminals, with clean output in pipes/CI
-- **Color-coded output**: Status codes and content-length are colored based on significance (green = likely bypass, red = blocked)
-- **Multiple bypass techniques**: Implements 8 different techniques to bypass restrictions
-- **High concurrency**: Uses goroutines for fast and efficient testing
-- **Customizable**: Easily add new payloads and techniques
-
-## Implemented Bypass Techniques
-
-- **Verb Tampering**: Tests different HTTP methods to access protected resources
-- **Verb Case Switching**: Manipulates HTTP method capitalization to detect incorrect implementations
-- **Headers**: Injects headers designed for bypassing like X-Forwarded-For, X-Original-URL, etc.
-- **Custom Paths**: Tests alternative paths that can bypass access restrictions
-- **Path Traversal (midpaths)**: Inserts patterns in the middle of paths to confuse parsers
-- **Double-Encoding**: Uses double URL encoding to evade filters
-- **HTTP Versions**: Tests different HTTP versions (1.0, 1.1) to identify inconsistent behaviors
-- **Path Case Switching**: Manipulates uppercase/lowercase in paths to detect case-sensitive configurations
-
-## Prerequisites
-
-Before you install and run `nomore403`, make sure you have the following:
-- Go 1.24 or higher installed on your machine.
+- Baseline-driven comparison against the blocked response
+- Auto-calibration to reduce false positives from default `404` or parent-path responses
+- Scored output with separate summaries for likely bypasses and interesting variations
+- Replay and reproducibility for high-value findings
+- Retry and backoff for transient network failures
+- Concurrent execution with per-technique progress
+- Raw HTTP support for request forms that `net/http` normalizes away
+- JSON and JSONL output for pipelines and post-processing
+- Input from a single URL, URL files, stdin, or request files
 
 ## Installation
 
-### Compile from Source
-
-This is the recommended method as it ensures you have all necessary files, including the payloads folder:
+### Build from source
 
 ```bash
 git clone https://github.com/devploit/nomore403
 cd nomore403
-go get
 go build
 ```
 
-### From Releases
-
-You can download pre-compiled binaries for your OS from our [Releases](https://github.com/devploit/nomore403/releases) page.
-
-**Important**: When installing via pre-compiled binaries, the payloads folder might not be included. If that's the case, download it separately:
-
-```bash
-# After downloading the binary
-git clone --depth 1 https://github.com/devploit/nomore403.git
-cp -r nomore403/payloads /path/to/your/preferred/location
-# Then use nomore403 with -f flag
-nomore403 -u https://domain.com/admin -f /path/to/your/preferred/location/payloads
-```
-
-### From Go install
-
-You can install nomore403 directly with Go:
+### Install with Go
 
 ```bash
 go install github.com/devploit/nomore403@latest
 ```
 
-**Important**: When installing via `go install`, the payloads folder will not be included. You'll need to download it separately:
+If you install with `go install`, the `payloads/` directory is not installed automatically. Clone the repository and point the tool to that directory with `-f` if needed.
+
+## Requirements
+
+- Go 1.24 or later to build from source
+- `curl` available in `PATH` for techniques that depend on it, such as:
+  - `http-versions`
+  - `absolute-uri`
+
+Most techniques work without `curl`.
+
+## Quick Start
+
+Basic scan:
 
 ```bash
-# After installing with go install
-git clone --depth 1 https://github.com/devploit/nomore403.git
-cp -r nomore403/payloads /path/to/your/preferred/location
-# Then use nomore403 with -f flag
-nomore403 -u https://domain.com/admin -f /path/to/your/preferred/location/payloads
+./nomore403 -u https://target.tld/admin
 ```
 
-## How It Works
-
-1. **Auto-calibration**: Makes 3 requests to non-existent paths and calculates the average response size with a dynamic tolerance range. This creates a reliable baseline to filter false positives.
-2. **Default request**: Makes a standard request to the target to capture the "blocked" response signature (status code + content-length).
-3. **Technique execution**: Runs selected techniques concurrently with per-technique progress bars. Requests are retried automatically on transient errors with exponential backoff.
-4. **Smart filtering**: Only shows responses that differ meaningfully from the default blocked response — different status code or significantly different content-length. Repeated identical results are deduplicated with a summary count.
-
-## Customization
-
-To edit or add new bypasses, modify the payloads directly in the [payloads](https://github.com/devploit/nomore403/tree/main/payloads) folder. nomore403 will automatically incorporate these changes.
-
-### Payloads Folder Structure
-
-- **headers**: Headers used for bypassing
-- **ips**: IP addresses to inject in specific headers
-- **httpmethods**: Alternative HTTP methods
-- **endpaths**: Custom paths to add at the end of the target URL
-- **midpaths**: Patterns to insert in the middle of paths
-- **simpleheaders**: Common simple headers
-- **useragents**: List of User-Agents for rotation
-
-## Usage
-
-### Output example
+Use a proxy and verbose output:
 
 ```bash
-━━━━━━━━━━━━━━━━━ NOMORE403 ━━━━━━━━━━━━━━━━━━
-  Target: https://domain.com/admin
-  Method: GET User-Agent: nomore403
-  Timeout: 6000ms Delay: 0ms
-  Proxy: - Bypass IP: -
-  Flags: -
-  Techniques: verbs, verbs-case, headers, endpaths, midpaths, double-encoding, http-versions, path-case
-  Payloads: payloads
-
-━━━━━━━━━━━━━━━ AUTO-CALIBRATION RESULTS ━━━━━━━━━━━━━━━
-[✔] Calibration samples: 3
-[✔] Status Code: 404
-[✔] Avg Content Length: 1821 bytes (tolerance: ±50)
-
-━━━━━━━━━━━━━ DEFAULT REQUEST ━━━━━━━━━━━━━
-403 	          429 bytes https://domain.com/admin
-
-━━━━━━━━━━━━━ VERB TAMPERING ━━━━━━━━━━━━━━
-
-━━━━━ VERB TAMPERING CASE SWITCHING ━━━━━━━
-
-━━━━━━━━━━━━━ HEADERS ━━━━━━━━━━━━━━━━━━━━━
-200 	         2047 bytes X-Original-URL: /admin
-200 	         2047 bytes X-Rewrite-URL: /admin
-200 	         2047 bytes X-Custom-IP-Authorization: 127.0.0.1
-  ... and 12 more with 200/2047 bytes (use -v to see all)
-
-━━━━━━━━━━━━━ CUSTOM PATHS ━━━━━━━━━━━━━━━━
-200 	         2047 bytes https://domain.com/;///..admin
-
-━━━━━━━━━━━━━ MIDPATHS ━━━━━━━━━━━━━━━━━━━━
-
-━━━━━━━━━━━━━ DOUBLE-ENCODING ━━━━━━━━━━━━━
-
-━━━━━━━━━━━━━ HTTP VERSIONS ━━━━━━━━━━━━━━━
-
-━━━━━━━━━━ PATH CASE SWITCHING ━━━━━━━━━━━━
-200 	         2047 bytes https://domain.com/%61dmin
+./nomore403 -u https://target.tld/admin -x http://127.0.0.1:8080 -v
 ```
 
-### Basic Usage
+Run only selected techniques:
 
 ```bash
-./nomore403 -u https://domain.com/admin
+./nomore403 -u https://target.tld/admin -k headers,absolute-uri,raw-desync
 ```
 
-### Verbose Mode + Proxy + Specific techniques to use
+Read targets from stdin:
 
 ```bash
-./nomore403 -u https://domain.com/admin -x http://127.0.0.1:8080 -k headers,http-versions -v
+cat urls.txt | ./nomore403
 ```
 
-### Parse request from Burp
+Use a Burp-style request file:
 
 ```bash
 ./nomore403 --request-file request.txt
 ```
 
-### Use custom header + specific IP address for bypasses
+Write machine-readable output:
 
 ```bash
-./nomore403 -u https://domain.com/admin -H "Environment: Staging" -i 8.8.8.8
+./nomore403 -u https://target.tld/admin --jsonl -o findings.jsonl
 ```
 
-### Set new max of goroutines + add delay between requests
+## Example Output
+
+```text
+━━━━━━━━━━━━━━━━━━━━━━ NOMORE403 ━━━━━━━━━━━━━━━━━━━━━━━
+  Target: https://target.tld/admin
+  Method: GET User-Agent: nomore403
+  Timeout: 6000ms Delay: 0ms
+  Proxy: - Bypass IP: -
+  Flags: -
+  Frontend: AWS ELB/ALB
+  Techniques: headers, absolute-uri, path-normalization, ...
+  Payloads: payloads
+
+━━━━━━━━━━━━━━━ AUTO-CALIBRATION RESULTS ━━━━━━━━━━━━━━━
+[✔] Calibration samples: 3
+[✔] Status Code: 404
+[✔] Avg Content Length: 1245 bytes (tolerance: ±50)
+[✔] Fragment baseline: 703 bytes
+
+━━━━━━━━━━━━━━━ DEFAULT REQUEST ━━━━━━━━━━━━━━
+[  5 LOW]   Default request         403->403      520 bytes https://target.tld/admin
+
+━━━━━━━━━━━━━━━━━━ HEADERS ━━━━━━━━━━━━━━━━━━━
+[ 82 HIGH]  Header injection        403=>200     2048 bytes X-Original-URL -> path
+[ 61 MED]   Header injection        403=>302      128 bytes X-Rewrite-URL -> path
+  ... and 4 more collapsed as similar parser behavior
+
+━━━━━━━━━━━ INTERESTING VARIATIONS ━━━━━━━━━━━
+[26 LOW]    Absolute URI            403->403      236b
+         why: len Δ284
+        item: request-target: https://target.tld/admin
+        curl: curl --request-target 'https://target.tld/admin' \
+              https://target.tld/admin
+```
+
+## How to Read the Output
+
+### Main technique output
+
+Each visible line is a response that differed enough from the baseline to survive filtering.
+
+Typical fields:
+
+- `score`: `0-100`
+- `likelihood`: `LOW`, `MED`, or `HIGH`
+- technique name
+- baseline transition, for example `403=>200`
+- response size
+- item or payload used
+
+### Status transitions
+
+The transition shows how a technique changed the baseline response:
+
+- `403=>200` usually deserves immediate attention
+- `403=>302` is often interesting, especially for internal redirects or auth gateways
+- `403->400` or `403->404` usually indicate parser or routing differences rather than a bypass
+
+### Summaries
+
+At the end of the run, `nomore403` prints:
+
+- `LIKELY BYPASS`
+  - highest-scoring results
+  - includes replay status and reproducible `curl`
+- `INTERESTING VARIATIONS`
+  - meaningful parser or routing differences that are worth manual review
+- `NO VISIBLE RESULTS`
+  - techniques that ran but produced no output after filtering
+
+## Scoring Model
+
+Scoring is heuristic. It is intended to prioritize results, not to prove exploitation.
+
+The tool generally rewards:
+
+- transitions to `2xx`
+- transitions to `3xx`
+- large body-length changes
+- body hash changes
+- `Location` changes
+- differences that survive replay
+
+The tool generally down-ranks:
+
+- near-identical responses
+- repeated parser noise
+- unstable replay results
+- many `400` and `404` cases unless the response also changes substantially
+
+Recommended interpretation:
+
+- `HIGH`: likely actionable; review first
+- `MED`: plausible candidate; usually worth manual replay
+- `LOW`: parser difference, routing anomaly, or lower-confidence behavior
+
+## Auto-Calibration
+
+Auto-calibration is enabled by default in non-verbose mode.
+
+It sends requests to several non-existent paths and builds a baseline for the target's default error behavior. It also performs a fragment-based calibration request to reduce false positives caused by fragment-stripped paths.
+
+Use these flags to control it:
+
+- `--no-calibrate`
+  - compare only against the default blocked response
+- `--strict-calibrate`
+  - also compare body hash and key headers such as `Location`, `Content-Type`, and `Server`
+
+## Techniques
+
+The tool runs all techniques by default unless you specify `-k`.
+
+### Method and verb mutations
+
+- `verbs`
+  - alternative HTTP methods from `payloads/httpmethods`
+- `verbs-case`
+  - randomized casing of HTTP methods
+- `method-override`
+  - query, header, and body-based method override patterns
+
+### Header- and trust-based mutations
+
+- `headers`
+  - IP trust headers, simple headers, and Host variations
+- `hop-by-hop`
+  - hop-by-hop stripping tricks using `Connection`
+- `header-confusion`
+  - rewrite and path-override headers such as `X-Original-URL`
+- `host-override`
+  - host override and forwarded-host variants
+- `forwarded-trust`
+  - `Forwarded`, `Client-IP`, `Cluster-Client-IP`, and related trust chains
+- `proto-confusion`
+  - `X-Forwarded-Proto`, `X-Forwarded-Port`, and related scheme hints
+- `ip-encoding`
+  - localhost and trusted-address variants in dotted, integer, hex, and IPv6 forms
+
+### Path and normalization mutations
+
+- `endpaths`
+  - suffix and end-of-path mutations from `payloads/endpaths`
+- `midpaths`
+  - path insertion and traversal-style mutations from `payloads/midpaths`
+- `double-encoding`
+  - encoded path variants, including aggressive double-encoding forms
+- `unicode`
+  - `%uXXXX` and overlong UTF-8 path variants
+- `path-case`
+  - path segment case switching
+- `path-normalization`
+  - dot-segment and semicolon normalization variants
+- `suffix-tricks`
+  - suffix and extension tricks such as `.json`, `.css`, `;index.html`, and format-style query toggles
+- `payload-position`
+  - inserts payloads at explicitly marked positions in the URL
+
+### Frontend and wire-format mutations
+
+- `http-versions`
+  - compares `HTTP/1.0` and `HTTP/2`
+- `absolute-uri`
+  - uses absolute-form request targets through `curl --request-target`
+- `raw-duplicates`
+  - duplicate security-relevant headers with raw HTTP
+- `raw-authority`
+  - duplicate or conflicting authority and host signals
+- `raw-desync`
+  - request forms aimed at frontend/backend parsing differences, including conflicting transfer semantics
+
+## Raw HTTP Behavior
+
+Some techniques need wire-level control that Go's `net/http` client does not provide. Those techniques use the raw HTTP engine.
+
+Raw techniques currently include:
+
+- `raw-duplicates`
+- `raw-authority`
+- `raw-desync`
+- some `%uXXXX` unicode path requests
+
+Notes:
+
+- raw requests are sent automatically where needed
+- raw techniques do not currently support upstream proxies
+- raw behavior is useful for:
+  - duplicate headers
+  - exact request targets
+  - transfer-encoding and content-length edge cases
+
+## Fingerprinting and Technique Order
+
+The tool may infer frontend hints such as:
+
+- AWS ELB / ALB
+- CloudFront
+- Cloudflare
+- Nginx
+- Envoy
+- Apache
+- IIS
+
+These hints are used to improve technique ordering and output context.
+
+Important:
+
+- fingerprinting does not disable techniques by default
+- unless you use `-k`, the tool still runs the full default technique set
+
+## Reproducibility and Replay
+
+High-value results are replayed automatically in the final summary.
+
+The replay output helps answer:
+
+- did the behavior repeat?
+- did it keep the same status and response shape?
+- is this likely stable enough to investigate or report?
+
+The final summary includes:
+
+- replay counts such as `1/1` or `2/2 matched on replay`
+- a replayable `curl` command for interesting results
+
+## Input Modes
+
+### Single target
+
 ```bash
-./nomore403 -u https://domain.com/admin -m 10 -d 200
+./nomore403 -u https://target.tld/admin
 ```
 
-### Filter by specific status codes
-```bash
-./nomore403 -u https://domain.com/admin --status 200,302
-```
-
-### Pipe URLs from stdin
-```bash
-cat urls.txt | ./nomore403
-```
-
-## Options
+### File containing URLs
 
 ```bash
-./nomore403 -h
-Command line application that automates different ways to bypass 40X codes.
-
-Usage:
-  nomore403 [flags]
-
-Flags:
-  -i, --bypass-ip string      Use a specified IP address or hostname for bypassing access controls. Injects this IP in headers like 'X-Forwarded-For'.
-  -d, --delay int             Specify a delay between requests in milliseconds. Helps manage request rate (default: 0ms).
-  -f, --folder string         Specify the folder location for payloads if not in the same directory as the executable.
-  -H, --header strings        Add one or more custom headers to requests. Repeatable flag for multiple headers.
-  -h, --help                  help for nomore403
-      --http                  Use HTTP instead of HTTPS for requests defined in the request file.
-  -t, --http-method string    Specify the HTTP method for the request (e.g., GET, POST). Default is 'GET'.
-  -m, --max-goroutines int    Limit the maximum number of concurrent goroutines to manage load (default: 50). (default 50)
-      --no-banner             Disable the display of the startup banner (default: banner shown).
-  -x, --proxy string          Specify a proxy server for requests (e.g., 'http://server:port').
-      --random-agent          Enable the use of a randomly selected User-Agent.
-  -l, --rate-limit            Halt requests upon encountering a 429 (rate limit) HTTP status code.
-  -r, --redirect              Automatically follow redirects in responses.
-      --request-file string   Load request configuration and flags from a specified file.
-      --status strings        Filter output by comma-separated status codes (e.g., 200,301,403)
-  -k, --technique strings     Specify one or more attack techniques to use (e.g., headers,path-case). (default [verbs,verbs-case,headers,endpaths,midpaths,double-encoding,http-versions,path-case])
-      --timeout int           Specify a max timeout time in ms. (default 6000)
-      --unique                Show unique output based on status code and response length.
-  -u, --uri string            Specify the target URL for the request.
-  -a, --user-agent string     Specify a custom User-Agent string for requests (default: 'nomore403').
-  -v, --verbose               Enable verbose output for detailed request/response logging (not based on auto-calibrate).
-      --version               version for nomore403
+./nomore403 -u targets.txt
 ```
 
-## Common Use Cases
+### Stdin
 
-- **Security Audits**: Identify misconfigurations in authentication systems
-- **Bug Bounty**: Discover bypasses in protected endpoints
-- **Penetration Testing**: Gain access to restricted areas during assessments
-- **Hardening**: Verify the robustness of implemented protections
+```bash
+cat targets.txt | ./nomore403
+```
+
+### Request file
+
+```bash
+./nomore403 --request-file request.txt
+```
+
+Request files are useful when replaying traffic captured in Burp or another proxy.
+
+## Custom Payload Positions
+
+Use `--payload-position` when you want to inject payloads at explicit markers instead of relying only on built-in endpath and midpath mutation logic.
+
+Example:
+
+```bash
+./nomore403 -u 'https://target.tld/§100§/admin/§200§' -p §
+```
+
+## Common Workflows
+
+### Fast triage
+
+```bash
+./nomore403 -u https://target.tld/admin
+```
+
+### Investigate with an intercepting proxy
+
+```bash
+./nomore403 -u https://target.tld/admin -x http://127.0.0.1:8080 -v
+```
+
+### Run only raw and frontend-focused techniques
+
+```bash
+./nomore403 -u https://target.tld/admin -k absolute-uri,raw-duplicates,raw-authority,raw-desync
+```
+
+### Test a custom trusted IP
+
+```bash
+./nomore403 -u https://target.tld/admin -i 10.0.0.5
+```
+
+### Save JSONL for later analysis
+
+```bash
+./nomore403 -u https://target.tld/admin --jsonl -o findings.jsonl
+```
+
+## Flags
+
+Run `./nomore403 --help` for the full up-to-date CLI.
+
+Key flags:
+
+- `-u, --uri`
+  - target URL, file of URLs, or input path
+- `-k, --technique`
+  - comma-separated list of techniques to run
+- `-x, --proxy`
+  - upstream proxy
+- `-H, --header`
+  - add custom headers
+- `-i, --bypass-ip`
+  - IP or hostname used in trust-header techniques
+- `-v, --verbose`
+  - show all visible results, not just filtered output
+- `--json`
+  - write structured JSON
+- `--jsonl`
+  - write one JSON object per result
+- `--no-calibrate`
+  - disable auto-calibration
+- `--strict-calibrate`
+  - compare more response fields during filtering
+- `--retry-count`
+  - number of retries for transient errors
+- `--retry-backoff-ms`
+  - exponential backoff base in milliseconds
+- `--host-delay`
+  - delay between batched targets on the same host
+- `--top-score-min`
+  - minimum score for `LIKELY BYPASS`
+- `--variation-score-min`
+  - minimum score for `INTERESTING VARIATIONS`
+
+## Output Formats
+
+### Human-readable terminal output
+
+Default mode is optimized for interactive review and triage.
+
+### JSON
+
+Use `--json` for a single structured document.
+
+### JSON Lines
+
+Use `--jsonl` when you want to:
+
+- process results incrementally
+- store evidence in pipelines
+- import findings into your own tooling
+
+## Payload Files
+
+The `payloads/` directory contains lists used by several techniques.
+
+Current files include:
+
+- `httpmethods`
+- `headers`
+- `ips`
+- `simpleheaders`
+- `endpaths`
+- `midpaths`
+- `useragents`
+
+You can customize these files to fit your targets or workflow.
+
+## Limitations
+
+- raw HTTP techniques do not currently support upstream proxies
+- scoring is heuristic and can produce false positives or false negatives
+- some techniques depend on target-specific behavior and may appear noisy on heavily normalized stacks
+- `curl`-based techniques require `curl` in `PATH`
+
+## Security and Responsible Use
+
+Use this tool only on systems you are authorized to test.
+
+The authors and contributors are not responsible for misuse. You are responsible for complying with applicable law, program rules, and organizational policy.
 
 ## Contributing
 
-We welcome contributions of all forms. Here's how you can help:
+Contributions are welcome.
 
- - Report bugs and suggest features
- - Submit pull requests with bug fixes and new features
- - Add new payloads to existing folders
+Useful contribution areas include:
 
-## Security Considerations
+- bug fixes
+- better payloads
+- new bypass techniques
+- raw HTTP improvements
+- frontend fingerprinting
+- documentation and examples
 
-While nomore403 is designed for educational and ethical testing purposes, it's important to use it responsibly and with permission on target systems. Please adhere to local laws and guidelines.
+Before contributing a technique, prefer:
+
+- a clearly distinct parsing or trust-boundary behavior
+- reproducible evidence
+- tests that verify the request shape or replay behavior
 
 ## License
 
-nomore403 is released under the MIT License. See the [LICENSE](https://github.com/devploit/nomore403/blob/main/LICENSE) file for details.
-
-## Acknowledgments
-
-NoMore403 draws inspiration from several projects in the web security space:
-- [Dontgo403](https://github.com/devploit/dontgo403) - The predecessor to NoMore403
-- The cybersecurity community for documenting and sharing bypass techniques
-- All contributors who have helped improve this tool
-
-## Contact
-
-[![Twitter: devploit](https://img.shields.io/badge/-Twitter-blue?style=flat-square&logo=Twitter&logoColor=white&link=https://twitter.com/devploit/)](https://twitter.com/devploit/)
+This project is released under the MIT License. See [LICENSE](LICENSE).
