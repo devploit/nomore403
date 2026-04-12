@@ -4,13 +4,14 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fatih/color"
@@ -18,6 +19,61 @@ import (
 
 // ErrRateLimited is returned when the server responds with HTTP 429.
 var ErrRateLimited = fmt.Errorf("rate limited (HTTP 429)")
+
+// clientCacheKey identifies a unique HTTP client configuration.
+type clientCacheKey struct {
+	proxy    string
+	timeout  int
+	redirect bool
+}
+
+var clientCache sync.Map
+
+// getClient returns a cached HTTP client for the given configuration,
+// creating one if needed. This enables connection pooling across requests.
+func getClient(proxy *url.URL, timeout int, redirect bool) *http.Client {
+	proxyStr := ""
+	if proxy != nil {
+		proxyStr = proxy.String()
+	}
+	key := clientCacheKey{proxyStr, timeout, redirect}
+
+	if v, ok := clientCache.Load(key); ok {
+		return v.(*http.Client)
+	}
+
+	timeoutDuration := time.Duration(timeout) * time.Millisecond
+	transport := &http.Transport{
+		Proxy: http.ProxyURL(proxy),
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+		DialContext: (&net.Dialer{
+			Timeout:   timeoutDuration,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   timeoutDuration,
+		ResponseHeaderTimeout: timeoutDuration,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   timeoutDuration,
+	}
+
+	if !redirect {
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	}
+
+	clientCache.Store(key, client)
+	return client
+}
 
 // parseFile reads a file given its filename and returns a list containing each of its lines.
 func parseFile(filename string) ([]string, error) {
@@ -56,7 +112,8 @@ type header struct {
 // requestWithRetry makes an HTTP request with retry logic and exponential backoff.
 // It retries up to maxRetries times on transient errors (timeouts, connection errors).
 // On HTTP 429, it retries with backoff if rateLimit is false; returns ErrRateLimited if rateLimit is true.
-func requestWithRetry(method, uri string, headers []header, proxy *url.URL, rateLimit bool, timeout int, redirect bool) (int, []byte, error) {
+// Returns (statusCode, responseBodySize, error).
+func requestWithRetry(method, uri string, headers []header, proxy *url.URL, rateLimit bool, timeout int, redirect bool) (int, int, error) {
 	const maxRetries = 2
 	var lastErr error
 
@@ -66,30 +123,25 @@ func requestWithRetry(method, uri string, headers []header, proxy *url.URL, rate
 			time.Sleep(backoff)
 		}
 
-		statusCode, resp, err := request(method, uri, headers, proxy, timeout, redirect)
+		statusCode, respSize, err := request(method, uri, headers, proxy, timeout, redirect)
 		if err == nil {
-			// Handle rate limiting
 			if statusCode == 429 {
 				if rateLimit {
-					return statusCode, resp, ErrRateLimited
+					return statusCode, respSize, ErrRateLimited
 				}
 				lastErr = fmt.Errorf("HTTP 429 rate limited on attempt %d", attempt+1)
 				continue
 			}
-			return statusCode, resp, nil
+			return statusCode, respSize, nil
 		}
 
 		lastErr = err
-		// Only retry on transient errors (timeouts, connection refused, etc.)
 		if !isTransientError(err) {
-			return 0, nil, err
-		}
-		if attempt < maxRetries {
-			log.Printf("[!] Transient error (attempt %d/%d): %v", attempt+1, maxRetries+1, err)
+			return 0, 0, err
 		}
 	}
 
-	return 0, nil, fmt.Errorf("request failed after %d attempts: %w", maxRetries+1, lastErr)
+	return 0, 0, fmt.Errorf("request failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 
 // isTransientError returns true for errors that are likely transient and worth retrying.
@@ -115,7 +167,8 @@ func isTransientError(err error) bool {
 }
 
 // request makes a single HTTP request using headers `headers` and proxy `proxy`.
-func request(method, uri string, headers []header, proxy *url.URL, timeout int, redirect bool) (int, []byte, error) {
+// Returns (statusCode, responseBodySize, error).
+func request(method, uri string, headers []header, proxy *url.URL, timeout int, redirect bool) (int, int, error) {
 	if method == "" {
 		method = "GET"
 	}
@@ -124,47 +177,26 @@ func request(method, uri string, headers []header, proxy *url.URL, timeout int, 
 		proxy = nil
 	}
 
-	timeoutDuration := time.Duration(timeout) * time.Millisecond
-	customTransport := &http.Transport{
-		Proxy: http.ProxyURL(proxy),
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-		DialContext: (&net.Dialer{
-			Timeout:   timeoutDuration,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   timeoutDuration,
-		ResponseHeaderTimeout: timeoutDuration,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
-
-	client := &http.Client{
-		Transport: customTransport,
-		Timeout:   timeoutDuration,
-	}
-
-	if !redirect {
-		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-	}
+	client := getClient(proxy, timeout, redirect)
 
 	parsedURL, err := url.Parse(uri)
 	if err != nil || parsedURL == nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
-		return 0, nil, fmt.Errorf("invalid URL: %q", uri)
+		// Fallback for non-standard encoding (e.g., %u002f unicode escapes)
+		// that url.Parse rejects. Extract scheme/host manually and preserve
+		// the raw path so the server receives it as-is.
+		parsedURL, err = parseRawURL(uri)
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid URL: %q", uri)
+		}
+	} else {
+		parsedURL.RawPath = parsedURL.EscapedPath()
 	}
-
-	parsedURL.RawPath = parsedURL.EscapedPath()
 
 	req := &http.Request{
 		Method: method,
 		Host:   parsedURL.Host,
 		URL:    parsedURL,
 		Header: make(http.Header),
-		Close:  true,
 	}
 
 	for _, header := range headers {
@@ -173,7 +205,7 @@ func request(method, uri string, headers []header, proxy *url.URL, timeout int, 
 
 	res, err := client.Do(req)
 	if err != nil {
-		return 0, nil, err
+		return 0, 0, err
 	}
 	defer func() {
 		if cerr := res.Body.Close(); cerr != nil {
@@ -181,12 +213,10 @@ func request(method, uri string, headers []header, proxy *url.URL, timeout int, 
 		}
 	}()
 
-	resp, err := httputil.DumpResponse(res, true)
-	if err != nil {
-		return 0, nil, err
-	}
+	// Read and discard body to get size and allow connection reuse
+	bodySize, _ := io.Copy(io.Discard, res.Body)
 
-	return res.StatusCode, resp, nil
+	return res.StatusCode, int(bodySize), nil
 }
 
 // loadFlagsFromRequestFile parse an HTTP request and configure the necessary flags for an execution
@@ -258,13 +288,13 @@ func runAutocalibrate(options RequestOptions) (int, int) {
 	var lastStatusCode int
 	for _, path := range calibrationPaths {
 		calibrationURI := baseURI + path
-		statusCode, response, err := requestWithRetry("GET", calibrationURI, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+		statusCode, respSize, err := requestWithRetry("GET", calibrationURI, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 		if err != nil {
 			log.Printf("[!] Error during calibration request (%s): %v\n", path, err)
 			continue
 		}
 		lastStatusCode = statusCode
-		samples = append(samples, len(response))
+		samples = append(samples, respSize)
 	}
 
 	if len(samples) == 0 {
@@ -302,4 +332,47 @@ func runAutocalibrate(options RequestOptions) (int, int) {
 	fmt.Printf("[✔] Avg Content Length: %d bytes (tolerance: ±%d)\n", avgCl, tolerance)
 
 	return avgCl, tolerance
+}
+
+// parseRawURL extracts scheme, host, and raw path from a URI without decoding
+// percent-encoded sequences. This allows non-standard encodings like %u002f
+// (IIS-style Unicode escapes) to be sent to the server as-is.
+func parseRawURL(rawURI string) (*url.URL, error) {
+	idx := strings.Index(rawURI, "://")
+	if idx < 0 {
+		return nil, fmt.Errorf("missing scheme")
+	}
+	scheme := rawURI[:idx]
+	if scheme != "http" && scheme != "https" {
+		return nil, fmt.Errorf("unsupported scheme %q", scheme)
+	}
+	rest := rawURI[idx+3:]
+
+	slashIdx := strings.Index(rest, "/")
+	var host, rawPath string
+	if slashIdx < 0 {
+		host = rest
+		rawPath = "/"
+	} else {
+		host = rest[:slashIdx]
+		rawPath = rest[slashIdx:]
+	}
+
+	if host == "" {
+		return nil, fmt.Errorf("missing host")
+	}
+
+	// Split raw path and query
+	rawQuery := ""
+	if qIdx := strings.Index(rawPath, "?"); qIdx >= 0 {
+		rawQuery = rawPath[qIdx+1:]
+		rawPath = rawPath[:qIdx]
+	}
+
+	return &url.URL{
+		Scheme:   scheme,
+		Host:     host,
+		Opaque:   rawPath,
+		RawQuery: rawQuery,
+	}, nil
 }

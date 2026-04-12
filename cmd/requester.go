@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -55,6 +56,11 @@ var atomicDefaultSc int32  // default request status code
 var atomicDefaultRespCl int64 // default request content-length (separate from calibration)
 
 func getVerbose() bool       { return atomic.LoadInt32(&atomicVerbose) != 0 }
+func logVerbose(v ...interface{}) {
+	if getVerbose() {
+		log.Println(v...)
+	}
+}
 func setVerbose(v bool)      { var val int32; if v { val = 1 }; atomic.StoreInt32(&atomicVerbose, val) }
 func getDefaultCl() int      { return int(atomic.LoadInt64(&atomicDefaultCl)) }
 func setDefaultCl(v int)     { atomic.StoreInt64(&atomicDefaultCl, int64(v)) }
@@ -412,7 +418,6 @@ func filterOriginalMethod(originalMethod string, combinations []string) []string
 
 // selectRandomCombinations selects up to n random combinations from a list of combinations.
 func selectRandomCombinations(combinations []string, n int) []string {
-	rand.Seed(time.Now().UnixNano())
 	if len(combinations) <= n {
 		return combinations
 	}
@@ -428,7 +433,7 @@ func selectRandomCombinations(combinations []string, n int) []string {
 func requestDefault(options RequestOptions) {
 	color.Cyan("\n━━━━━━━━━━━━━━━ DEFAULT REQUEST ━━━━━━━━━━━━━━")
 
-	statusCode, response, err := requestWithRetry(options.method, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+	statusCode, respSize, err := requestWithRetry(options.method, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 	if err != nil {
 		if errors.Is(err, ErrRateLimited) {
 			log.Printf("[!] Rate limited on default request, aborting")
@@ -439,12 +444,12 @@ func requestDefault(options RequestOptions) {
 
 	// Capture the default response signature for smart filtering
 	setDefaultSc(statusCode)
-	setDefaultRespCl(len(response))
+	setDefaultRespCl(respSize)
 	if !options.autocalibrate || getDefaultCl() == 0 {
-		setDefaultCl(len(response))
+		setDefaultCl(respSize)
 	}
 
-	printResponse(Result{options.uri, statusCode, len(response), true}, "default")
+	printResponse(Result{options.uri, statusCode, respSize, true}, "default")
 }
 
 // requestMethods makes HTTP requests using a list of methods from a file and prints the results.
@@ -467,17 +472,17 @@ func requestMethods(options RequestOptions) {
 		go func(line string) {
 			defer w.Done()
 			defer p.done()
-			statusCode, response, err := requestWithRetry(line, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, respSize, err := requestWithRetry(line, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				if errors.Is(err, ErrRateLimited) {
 					log.Printf("[!] Rate limited, stopping verb tampering")
 					return
 				}
-				log.Println(err)
+				logVerbose(err)
 				return
 			}
 
-			contentLength := len(response)
+			contentLength := respSize
 
 			if isCalibrationMatch(contentLength) {
 				return
@@ -538,16 +543,16 @@ func requestMethodsCaseSwitching(options RequestOptions) {
 		go func(item workItem) {
 			defer w.Done()
 			defer p.done()
-			statusCode, response, err := requestWithRetry(item.method, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, respSize, err := requestWithRetry(item.method, options.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				if errors.Is(err, ErrRateLimited) {
 					return
 				}
-				log.Println(err)
+				logVerbose(err)
 				return
 			}
 
-			contentLength := len(response)
+			contentLength := respSize
 
 			if contentLength == item.originalContentLength || isCalibrationMatch(contentLength) {
 				return
@@ -641,19 +646,19 @@ func requestHeaders(options RequestOptions) {
 			copy(headers, options.headers)
 			headers = append(headers, header{item.Line, item.IP})
 
-			statusCode, response, err := requestWithRetry(options.method, options.uri, headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, respSize, err := requestWithRetry(options.method, options.uri, headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				if errors.Is(err, ErrRateLimited) {
 					return
 				}
-				log.Println(err)
+				logVerbose(err)
 				return
 			}
 
 			result := Result{
 				line:          item.Line + ": " + item.IP,
 				statusCode:    statusCode,
-				contentLength: len(response),
+				contentLength: respSize,
 				defaultReq:    false,
 			}
 			printResponse(result, "headers")
@@ -681,19 +686,19 @@ func requestHeaders(options RequestOptions) {
 			copy(headers, options.headers)
 			headers = append(headers, header{strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])})
 
-			statusCode, response, err := requestWithRetry(options.method, options.uri, headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, respSize, err := requestWithRetry(options.method, options.uri, headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				if errors.Is(err, ErrRateLimited) {
 					return
 				}
-				log.Println(err)
+				logVerbose(err)
 				return
 			}
 
 			result := Result{
 				line:          line,
 				statusCode:    statusCode,
-				contentLength: len(response),
+				contentLength: respSize,
 				defaultReq:    false,
 			}
 			printResponse(result, "headers")
@@ -736,16 +741,16 @@ func requestEndPaths(options RequestOptions) {
 			defer w.Done()
 			defer p.done()
 
-			statusCode, response, err := requestWithRetry(options.method, joinURL(options.uri, line), options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, respSize, err := requestWithRetry(options.method, joinURL(options.uri, line), options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				if errors.Is(err, ErrRateLimited) {
 					return
 				}
-				log.Println(err)
+				logVerbose(err)
 				return
 			}
 
-			contentLength := len(response)
+			contentLength := respSize
 
 			if isCalibrationMatch(contentLength) {
 				return
@@ -821,25 +826,23 @@ func requestMidPaths(options RequestOptions) {
 			}
 			fullpath += queryStr
 
-			statusCode, response, err := requestWithRetry(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, respSize, err := requestWithRetry(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				if errors.Is(err, ErrRateLimited) {
 					return
 				}
-				log.Println(err)
+				logVerbose(err)
 				return
 			}
 
-			contentLength := len(response)
-
-			if isCalibrationMatch(contentLength) {
+			if isCalibrationMatch(respSize) {
 				return
 			}
 
 			result := Result{
 				line:          fullpath,
 				statusCode:    statusCode,
-				contentLength: contentLength,
+				contentLength: respSize,
 				defaultReq:    false,
 			}
 			printResponse(result, "midpaths")
@@ -897,19 +900,19 @@ func requestDoubleEncoding(options RequestOptions) {
 			defer w.Done()
 			defer p.done()
 
-			statusCode, response, err := requestWithRetry(options.method, encodedUri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, respSize, err := requestWithRetry(options.method, encodedUri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				if errors.Is(err, ErrRateLimited) {
 					return
 				}
-				log.Println(err)
+				logVerbose(err)
 				return
 			}
 
 			result := Result{
 				line:          encodedUri,
 				statusCode:    statusCode,
-				contentLength: len(response),
+				contentLength: respSize,
 				defaultReq:    false,
 			}
 			printResponse(result, "double-encoding")
@@ -1004,24 +1007,23 @@ func requestUnicodeEncoding(options RequestOptions) {
 			defer w.Done()
 			defer p.done()
 
-			statusCode, response, err := requestWithRetry(options.method, payload, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, respSize, err := requestWithRetry(options.method, payload, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				if errors.Is(err, ErrRateLimited) {
 					return
 				}
-				log.Println(err)
+				logVerbose(err)
 				return
 			}
 
-			contentLength := len(response)
-			if isCalibrationMatch(contentLength) {
+			if isCalibrationMatch(respSize) {
 				return
 			}
 
 			result := Result{
 				line:          payload,
 				statusCode:    statusCode,
-				contentLength: contentLength,
+				contentLength: respSize,
 				defaultReq:    false,
 			}
 			printResponse(result, "unicode-encoding")
@@ -1091,24 +1093,23 @@ func requestPayloadPositions(options RequestOptions) {
 			defer w.Done()
 			defer p.done()
 
-			statusCode, response, err := requestWithRetry(options.method, item.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, respSize, err := requestWithRetry(options.method, item.uri, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				if errors.Is(err, ErrRateLimited) {
 					return
 				}
-				log.Println(err)
+				logVerbose(err)
 				return
 			}
 
-			contentLength := len(response)
-			if isCalibrationMatch(contentLength) {
+			if isCalibrationMatch(respSize) {
 				return
 			}
 
 			result := Result{
 				line:          item.uri,
 				statusCode:    statusCode,
-				contentLength: contentLength,
+				contentLength: respSize,
 				defaultReq:    false,
 			}
 			printResponse(result, "payload-position")
@@ -1149,12 +1150,12 @@ func requestHttpVersions(options RequestOptions) {
 	}
 
 	for _, version := range httpVersions {
-		res := curlRequest(options.uri, proxyValue, version)
+		res := curlRequest(options.uri, proxyValue, version, options.timeout)
 		printResponse(res, "http-versions")
 	}
 }
 
-func curlRequest(uri string, proxy string, httpVersion string) Result {
+func curlRequest(uri string, proxy string, httpVersion string, timeout int) Result {
 	args := []string{"-i", "-s", httpVersion}
 	args = append(args, "-H", "User-Agent:")
 	args = append(args, "-H", "Accept:")
@@ -1168,7 +1169,11 @@ func curlRequest(uri string, proxy string, httpVersion string) Result {
 	}
 	args = append(args, "--insecure")
 	args = append(args, uri)
-	cmd := exec.Command("curl", args...)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "curl", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		log.Printf("[!] Curl command failed: %v", err)
@@ -1272,19 +1277,19 @@ func requestPathCaseSwitching(options RequestOptions) {
 			}
 			fullpath += queryStr
 
-			statusCode, response, err := requestWithRetry(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
+			statusCode, respSize, err := requestWithRetry(options.method, fullpath, options.headers, options.proxy, options.rateLimit, options.timeout, options.redirect)
 			if err != nil {
 				if errors.Is(err, ErrRateLimited) {
 					return
 				}
-				log.Println(err)
+				logVerbose(err)
 				return
 			}
 
 			result := Result{
 				line:          fullpath,
 				statusCode:    statusCode,
-				contentLength: len(response),
+				contentLength: respSize,
 				defaultReq:    false,
 			}
 
@@ -1324,8 +1329,6 @@ func randomLine(filePath string) (string, error) {
 		return "", fmt.Errorf("no entries found in %s", filePath)
 	}
 
-	// Seed the random number generator
-	rand.Seed(time.Now().UnixNano())
 	// Select a random Line
 	randomLine := lines[rand.Intn(len(lines))]
 
