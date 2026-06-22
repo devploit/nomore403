@@ -168,7 +168,7 @@ func isTransientError(err error) bool {
 		"connection reset",
 		"EOF",
 		"temporary failure",
-		"no such host", // DNS can be transient
+		"no such host",
 	}
 	for _, pattern := range transientPatterns {
 		if strings.Contains(strings.ToLower(errStr), strings.ToLower(pattern)) {
@@ -176,11 +176,6 @@ func isTransientError(err error) bool {
 		}
 	}
 	return false
-}
-
-// request makes a single HTTP request using headers `headers` and proxy `proxy`.
-func request(method, uri string, headers []header, proxy *url.URL, timeout int, redirect bool) (ResponseInfo, error) {
-	return requestBody(method, uri, headers, "", proxy, timeout, redirect)
 }
 
 func requestBody(method, uri string, headers []header, body string, proxy *url.URL, timeout int, redirect bool) (ResponseInfo, error) {
@@ -192,8 +187,6 @@ func requestBody(method, uri string, headers []header, body string, proxy *url.U
 		proxy = nil
 	}
 
-	// net/http and url.Parse do not accept legacy IIS-style %uXXXX escapes.
-	// Route those requests through the raw client so the request target is sent as-is.
 	if strings.Contains(strings.ToLower(uri), "%u") && proxy == nil && !redirect {
 		return rawRequest(method, uri, rawRequestTarget(uri), headers, body, timeout)
 	}
@@ -202,9 +195,6 @@ func requestBody(method, uri string, headers []header, body string, proxy *url.U
 
 	parsedURL, err := url.Parse(uri)
 	if err != nil || parsedURL == nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
-		// Fallback for non-standard encoding (e.g., %u002f unicode escapes)
-		// that url.Parse rejects. Extract scheme/host manually and preserve
-		// the raw path so the server receives it as-is.
 		parsedURL, err = parseRawURL(uri)
 		if err != nil {
 			return ResponseInfo{}, fmt.Errorf("invalid URL: %q", uri)
@@ -222,8 +212,6 @@ func requestBody(method, uri string, headers []header, body string, proxy *url.U
 	req.Header = make(http.Header)
 
 	for _, header := range headers {
-		// Go's net/http ignores req.Header["Host"] — it uses req.Host instead.
-		// Set req.Host directly so Host header variations are actually sent.
 		if strings.EqualFold(header.key, "Host") {
 			req.Host = header.value
 		} else {
@@ -261,7 +249,6 @@ func requestBody(method, uri string, headers []header, body string, proxy *url.U
 
 // loadFlagsFromRequestFile parse an HTTP request and configure the necessary flags for an execution
 func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, techniques []string, redirect bool) {
-	// Read the content of the request file
 	content, err := os.ReadFile(requestFile)
 	if err != nil {
 		log.Printf("[!] Error reading request file: %v", err)
@@ -274,7 +261,6 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, tec
 		return
 	}
 
-	// Down HTTP/2 to HTTP/1.1 (handles both "HTTP/2" and "HTTP/2.0")
 	firstLine := temp[0]
 	if strings.Contains(firstLine, "HTTP/2.0") {
 		firstLine = strings.Replace(firstLine, "HTTP/2.0", "HTTP/1.1", 1)
@@ -304,7 +290,6 @@ func loadFlagsFromRequestFile(requestFile string, schema bool, verbose bool, tec
 
 	uri := httpSchema + req.Host + req.RequestURI
 
-	// Extract headers from the request
 	var reqHeaders []string
 	for k, v := range req.Header {
 		reqHeaders = append(reqHeaders, k+": "+strings.Join(v, ""))
@@ -320,10 +305,8 @@ func runAutocalibrate(options RequestOptions) (int, int) {
 	calibrationPaths := []string{"calibration_test_123456", "calib_nonexist_789xyz", "zz_calibrate_000"}
 	var samples []int
 
-	baseURI := options.uri
-	if !strings.HasSuffix(baseURI, "/") {
-		baseURI += "/"
-	}
+	// Unconditionally ensure there is exactly one trailing slash
+	baseURI := strings.TrimSuffix(options.uri, "/") + "/"
 
 	var lastStatusCode int
 	for _, path := range calibrationPaths {
@@ -342,7 +325,6 @@ func runAutocalibrate(options RequestOptions) (int, int) {
 		return 0, 0
 	}
 
-	// Calculate average and max deviation
 	sum := 0
 	for _, s := range samples {
 		sum += s
@@ -360,19 +342,13 @@ func runAutocalibrate(options RequestOptions) (int, int) {
 		}
 	}
 
-	// Use tolerance = max(calibrationTolerance, maxDeviation*2) to handle dynamic content
 	tolerance := calibrationTolerance
 	if maxDeviation*2 > tolerance {
 		tolerance = maxDeviation * 2
 	}
 
-	// Fragment calibration: request URI#fragment to baseline fragment-stripped responses.
-	// Since # is a fragment separator, the server receives the parent path instead of the
-	// target path. This catches false positives from any payload that accidentally creates
-	// a fragment URL (e.g., midpath "#" → domain.com/#path → requests domain.com/).
 	parsedURI, parseErr := url.Parse(options.uri)
 	if parseErr == nil && parsedURI.Path != "" && parsedURI.Path != "/" {
-		// Build parent path: /api/admin → /api/
 		parentPath := parsedURI.Path
 		if strings.HasSuffix(parentPath, "/") {
 			parentPath = parentPath[:len(parentPath)-1]
@@ -392,7 +368,7 @@ func runAutocalibrate(options RequestOptions) (int, int) {
 	if getFragmentCl() > 0 {
 		summary += fmt.Sprintf(" | frag %db", getFragmentCl())
 	}
-	fmt.Printf("\n%s %s\n", color.New(color.FgHiBlack, color.Bold).Sprint("calib:"), color.New(color.FgHiBlack).Sprint(summary))
+	fmt.Printf("\n%s %s\n", color.New(color.FgHiYellow, color.Bold).Sprint("CALIB:"), color.New(color.FgHiYellow).Sprint(summary))
 
 	return avgCl, tolerance
 }
@@ -425,7 +401,6 @@ func parseRawURL(rawURI string) (*url.URL, error) {
 		return nil, fmt.Errorf("missing host")
 	}
 
-	// Split raw path and query
 	rawQuery := ""
 	if qIdx := strings.Index(rawPath, "?"); qIdx >= 0 {
 		rawQuery = rawPath[qIdx+1:]
@@ -433,10 +408,10 @@ func parseRawURL(rawURI string) (*url.URL, error) {
 	}
 
 	return &url.URL{
-		Scheme:   scheme,
-		Host:     host,
-		Opaque:   rawPath,
-		RawQuery: rawQuery,
+		Scheme:    scheme,
+		Host:      host,
+		Opaque:    rawPath,
+		RawQuery:  rawQuery,
 	}, nil
 }
 

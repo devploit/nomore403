@@ -2,7 +2,7 @@
 
 package main
 
-import "github.com/devploit/nomore403/cmd"
+import "github.com/R0X4R/nomore403/cmd"
 
 // Version and BuildDate are set via ldflags at build time.
 var (

@@ -370,7 +370,7 @@ func colorizeStatusTransition(result Result) string {
 	if statusPriority(result.statusCode) > statusPriority(base) {
 		arrow = color.GreenString("=>")
 	} else if statusPriority(result.statusCode) < statusPriority(base) {
-		arrow = color.HiBlackString("->")
+		arrow = color.HiWhiteString("->")
 	}
 
 	return fmt.Sprintf("%s%s%s", colorizeStatusCode(base), arrow, colorizeStatusCode(result.statusCode))
@@ -1077,7 +1077,7 @@ func printFindingGroup(findings []Result, limit int, includeCurl bool) {
 		limit = len(collapsed)
 	}
 	for i, f := range collapsed[:limit] {
-		scoreColor := color.New(color.FgHiBlack)
+		scoreColor := color.New(color.FgHiMagenta)
 		techColor := color.New(color.FgWhite, color.Bold)
 		marker := " "
 		switch f.likelihood {
@@ -1159,10 +1159,10 @@ func colorizeWhyText(text string) string {
 		"location changed", color.CyanString("location changed"),
 		"redirect anomaly", color.CyanString("redirect anomaly"),
 		"type changed", color.MagentaString("type changed"),
-		"server changed", color.HiBlackString("server changed"),
+		"server changed", color.HiWhiteString("server changed"),
 		"len Δ", color.BlueString("len Δ"),
 		"unstable replay", color.MagentaString("unstable replay"),
-		"minor variation", color.HiBlackString("minor variation"),
+		"minor variation", color.HiWhiteString("minor variation"),
 	)
 	return replacer.Replace(text)
 }
@@ -1245,8 +1245,8 @@ func printSilentTechniqueSummary() {
 		return
 	}
 	fmt.Printf("\n%s %s\n",
-		color.New(color.FgHiBlack, color.Bold).Sprint("no visible results:"),
-		color.New(color.FgHiBlack).Sprintf("%d techniques", len(silent)),
+		color.New(color.FgHiWhite, color.Bold).Sprint("no visible results:"),
+		color.New(color.FgHiWhite).Sprintf("%d techniques", len(silent)),
 	)
 }
 
@@ -1480,7 +1480,7 @@ func formatPrintedResult(result Result) string {
 	itemWidth := terminalWidth() - 2 - techWidth - 1 - scoreWidth - 1 - codeWidth - 1 - sizeWidth - 2
 	item := truncateForDisplay(result.line, itemWidth)
 	if result.defaultReq {
-		techDefault := color.New(color.FgHiBlack, color.Bold).Sprintf("%-*s", techWidth, "default")
+		techDefault := color.New(color.FgHiWhite, color.Bold).Sprintf("%-*s", techWidth, "default")
 		scoreBlank := strings.Repeat(" ", scoreWidth)
 		return fmt.Sprintf("  %s %s %s %s    %s", techDefault, scoreBlank, statusLabel, clStr, item)
 	}
@@ -1495,7 +1495,7 @@ func scoreColPlaceholder() string {
 
 func formatCompactScore(score int, likelihood string) string {
 	marker := "."
-	style := color.New(color.FgHiBlack)
+	style := color.New(color.FgHiWhite)
 	switch likelihood {
 	case "medium":
 		marker = "+"
@@ -1606,16 +1606,16 @@ func showInfo(options RequestOptions) {
 	if targetWidth < 36 {
 		targetWidth = 36
 	}
-	labelStyle := color.New(color.FgHiBlack, color.Bold).SprintFunc()
+	labelStyle := color.New(color.FgHiWhite, color.Bold).SprintFunc()
 	valueStyle := color.New(color.FgWhite, color.Bold).SprintFunc()
 	meta := []string{
-		labelStyle("target:") + " " + valueStyle(truncateForDisplay(options.uri, targetWidth)),
-		labelStyle("method:") + " " + valueStyle(options.method),
+		labelStyle("TARGET:") + " " + valueStyle(truncateForDisplay(options.uri, targetWidth)),
+		labelStyle("METHOD:") + " " + valueStyle(options.method),
 	}
 	if len(options.frontendHints) > 0 {
-		meta = append(meta, labelStyle("frontend:")+" "+valueStyle(strings.Join(options.frontendHints, ", ")))
+		meta = append(meta, labelStyle("FRONTEND:")+" "+valueStyle(strings.Join(options.frontendHints, ", ")))
 	}
-	meta = append(meta, labelStyle("payloads:")+" "+valueStyle(options.folder))
+	meta = append(meta, labelStyle("PAYLOADS:")+" "+valueStyle(options.folder))
 	fmt.Println(strings.Join(meta, "   "))
 }
 
