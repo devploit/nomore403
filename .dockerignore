@@ -1,0 +1,9 @@
+.git
+.github
+.gitignore
+.goreleaser.yaml
+.DS_Store
+._*
+dist/
+*.tmp
+*.log
