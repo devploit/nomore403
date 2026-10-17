@@ -59,6 +59,38 @@ go install github.com/devploit/nomore403@latest
 
 If you install with `go install`, the `payloads/` directory is not installed automatically. Clone the repository and point the tool to that directory with `-f` if needed.
 
+### Docker
+
+Pull the pre-built image from GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/devploit/nomore403:latest
+```
+
+Or build the image locally:
+
+```bash
+docker build -t nomore403 .
+```
+
+Run against a target:
+
+```bash
+docker run --rm ghcr.io/devploit/nomore403 -u https://target.tld/admin
+```
+
+Pipe targets through stdin:
+
+```bash
+cat urls.txt | docker run --rm -i ghcr.io/devploit/nomore403
+```
+
+Mount a host directory for custom request files or saving output:
+
+```bash
+docker run --rm -v $(pwd):/data ghcr.io/devploit/nomore403 -r /data/request.txt -o /data/results.json
+```
+
 ## Requirements
 
 - Go 1.24 or later to build from source
