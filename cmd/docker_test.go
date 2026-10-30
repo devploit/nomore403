@@ -167,7 +167,7 @@ func TestDockerBuildAndExecution(t *testing.T) {
 		if err != nil {
 			t.Fatalf("docker run --help failed: %v\nOutput: %s", err, string(out))
 		}
-		if !strings.Contains(string(out), "Tool to bypass 40X response codes.") {
+		if !strings.Contains(string(out), "Command line application that automates different ways to bypass 40X codes.") {
 			t.Errorf("help output does not contain expected banner; got: %s", string(out))
 		}
 	})
