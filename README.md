@@ -286,7 +286,7 @@ The tool runs all techniques by default unless you specify `-k`.
 - `path-normalization`
   - dot-segment and semicolon normalization variants
 - `suffix-tricks`
-  - suffix and extension tricks such as `.json`, `.css`, `;index.html`, and format-style query toggles
+  - suffix and extension tricks such as `.json`, `.css`, `;index.html`, format-style query toggles, and static-asset extensions in the query string (`?x=.js`, as seen bypassing Azure Application Gateway v2)
 - `payload-position`
   - inserts payloads at explicitly marked positions in the URL
 

