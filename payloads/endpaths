@@ -66,3 +66,11 @@
 %3Ffoo.php
 %3F.php
 %23foo
+?x=.js
+?x=.css
+?x=.png
+?x=.ico
+?x=.svg
+?.js
+?.css
+?.png

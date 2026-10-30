@@ -1739,3 +1739,73 @@ func TestCrossTechniqueDedupCollapsesSimilarFamilies(t *testing.T) {
 		t.Fatalf("expected similar cross-technique result to be collapsed")
 	}
 }
+
+// TestSuffixTricksSendsQueryExtensionVariants covers the Azure Application
+// Gateway bypass where the static-asset extension lives in the query string
+// (e.g. /admin?x=.js) instead of the path, so path-based allow rules match.
+func TestSuffixTricksSendsQueryExtensionVariants(t *testing.T) {
+	resetTestState()
+
+	var mu sync.Mutex
+	var capturedURIs []string
+
+	ts, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedURIs = append(capturedURIs, r.URL.RequestURI())
+		mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden")
+	})
+	defer ts.Close()
+
+	opts := RequestOptions{
+		uri:       ts.URL + "/admin/panel?id=7",
+		headers:   []header{{"User-Agent", "test"}},
+		method:    "GET",
+		proxy:     &url.URL{},
+		timeout:   5000,
+		rateLimit: false,
+		redirect:  false,
+		verbose:   true,
+	}
+
+	requestSuffixTricks(opts)
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{
+		"/admin/panel?x=.js",
+		"/admin/panel?x=.css",
+		"/admin/panel?x=.js&id=7",
+	}
+	for _, w := range want {
+		found := false
+		for _, uri := range capturedURIs {
+			if uri == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected query-extension variant %q, got %v", w, capturedURIs)
+		}
+	}
+}
+
+// TestEndPathsPayloadFileContainsQueryExtensionVariants pins the shipped
+// wordlist so the query-string extension bypass is exercised by default.
+func TestEndPathsPayloadFileContainsQueryExtensionVariants(t *testing.T) {
+	lines, err := parseFile("../payloads/endpaths")
+	if err != nil {
+		t.Fatalf("parse payloads/endpaths: %v", err)
+	}
+	have := map[string]bool{}
+	for _, l := range lines {
+		have[l] = true
+	}
+	for _, w := range []string{"?x=.js", "?x=.css", "?x=.png", "?.js", "?.css"} {
+		if !have[w] {
+			t.Errorf("payloads/endpaths missing %q", w)
+		}
+	}
+}
